@@ -1,0 +1,8 @@
+pandas==0.25.2
+numpy==1.17.3
+scipy==1.3.1
+argparse
+nltk==3.4.5
+scikit-learn
+joblib
+Matplotlib>=1.5.1
