@@ -6,3 +6,4 @@ nltk==3.4.5
 scikit-learn
 joblib
 Matplotlib>=1.5.1
+python-docx==0.8.10
