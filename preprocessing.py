@@ -77,11 +77,13 @@ class Preprocessing():
 		"""
 		return method(word_list)
 
-	def _get_tags(self, paragraph: String, method: Callable) => Dict:
+	def _get_tags(
+			self, paragraph: Dict, 
+			word_vec: Dict, method: Callable) => Dict:
 		"""
 		Get tags for topic classification 
 		"""
-		return method(paragraph)
+		return method(paragraph, word_vec)
 
 
 	def bag_of_word_dict_transformer(self) => List:
