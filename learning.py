@@ -15,29 +15,29 @@ from nltk.classify.scikitlearn import SklearnClassifier
 from nltk.metrics.scores import (
 	precision, recall, f_measure, accuracy
 )
-from preprocessing import PreprocessedObservation
+from preprocessing import TRAINING_INGREDIENT_PATH
 from db.db_connector import DBConnector
 
 class MLAbstract(object):
 	"""
 	Machine learning base class 
 	"""
-	def __init__(self, prev_output: PreprocessedObservation):
+	def __init__(self, prev_output):
 		"""
 		@data: observation of text and words with labels, data 
 		to derive training and testing dataset
 		@train_sample_ratio: #{training sample}/#{all samples}
 		"""
-		self._remove_stop_word = prev_output.stop_word_removed
-		self._do_stemming = prev_output.stemming
-		self._observation = prev_output.observation
+		# self._remove_stop_word = prev_output.stop_word_removed
+		# self._do_stemming = prev_output.stemming
+		self._observation = self._load_data()
 		self._k = 5 #TDOO: remove dummy setting for k
 		self._train_sample_ratio = 1 - 1 / self._k
 		self._traindata, self._testdata = self._sampling(
-			prev_output, self._train_sample_ratio
+			self._observation, self._train_sample_ratio
 		)
-		self._preprocessing_start = prev_output.preprocessing_start
-		self._preprocessing_end = prev_output.preprocessing_end
+		# self._preprocessing_start = prev_output.preprocessing_start
+		# self._preprocessing_end = prev_output.preprocessing_end
 		self._training_start = datetime.datetime.strftime(
 			datetime.datetime.now(), "%d-%m-%Y %H:%M:%S")
 		self._train()
@@ -52,8 +52,19 @@ class MLAbstract(object):
 		self.vis_path = ""
 		self.save_result()
 
-	def _sampling(self, data: PreprocessedObservation, 
-			train_sample_ratio):
+	def _load_data(self):
+		"""
+		Load data for training and testing
+		"""
+		filepath = os.path.join(
+			os.path.getcwd(), 
+			TRAINING_INGREDIENT_PATH,
+			# TODO: change accordingly
+			'sample.txt'
+		)
+		return json.load(filepath)
+
+	def _sampling(self, data, train_sample_ratio):
 		"""
 		To split sample to training and testing data
 		with a given ratio
@@ -108,3 +119,17 @@ class SimpleNaiveBayesClassifying(MLAbstract):
 
 	def _train(self):
 		self._model = nltk.NaiveBayesClassifier.train(self._traindata)
+
+
+ML_MODLE_MAP = {
+'naive_bayes': 'SimpleNaiveBayesClassifying',
+}
+
+class ModelClassSelector():
+	def __init__(self, model_name: str):
+		pass
+
+	@classmethod
+	def convert_string_to_classifier(
+			self, model_name: str) -> MLAbstract:
+		return eval(ML_MODLE_MAP[model_name])

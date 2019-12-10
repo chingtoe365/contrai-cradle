@@ -8,10 +8,10 @@ __doc__ = """
 """
 
 import psycopg2
-from config import *
+from .config import *
 
 from typing import Dict
-from learning import MLAbstract
+# from ..learning import MLAbstract
 
 class DBConnector():
 	"""
@@ -35,33 +35,66 @@ class DBConnector():
 			self._conn = conn
 			self._cursor = conn.cursor()
 
-	def insert(self, input: MLAbstract):
+	# def insert(self, input: MLAbstract):
+	# 	"""
+	# 	insert data
+	# 	"""
+	# 	command = """
+	# 		INSERT INTO %s
+	# 		(model_type, parameters, stop_word_removed, 
+	# 		stemming, k, train_sample_size, test_sample_size, 
+	# 		precision, recall, f_measure, parametric, 
+	# 		preprocessing_start, preprocessing_end, 
+	# 		training_start, training_end, 
+	# 		testing_start, testing_end, vis_path)
+	# 		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+	# 	""" % (
+	# 		PGTABLE,
+	# 		input._model_type, input._parameters, input._remove_stop_word,
+	# 		input._do_stemming, input.k, input._train_data_num,
+	# 		input._test_data_num, input.precision, input.recall,
+	# 		input.f_measure, input.accuracy, input._parametric, 
+	# 		input._preprocessing_start, input._preprocessing_end, 
+	# 		input._training_start, input._training_end, 
+	# 		input._testing_start, input._testing_end, input.vis_path
+	# 	)
+	# 	try:
+	# 		self._cursor.execute(command)
+	# 	except Exception as e:
+	# 		raise("Error writing into table %s" % (PGTABLE))
+
+	def insert(self, table_name, **kwargs):
 		"""
-		insert data
+		each key in kwargs should be correspond to each columns
+		in table 'results' in database 'evaluation'
 		"""
+		field_string = ','.join(kwargs.keys())
+		value_string = ','.join(
+			["'"+str(x)+"'" for x in kwargs.values()]
+		)
 		command = """
 			INSERT INTO %s
-			(model_type, parameters, stop_word_removed, 
-			stemming, k, train_sample_size, test_sample_size, 
-			precision, recall, f_measure, parametric, 
-			preprocessing_start, preprocessing_end, 
-			training_start, training_end, 
-			testing_start, testing_end, vis_path)
-			VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+			(%s)
+			VALUES (%s)
+			RETURNING id;
 		""" % (
-			PGTABLE,
-			input._model_type, input._parameters, input._remove_stop_word,
-			input._do_stemming, input.k, input._train_data_num,
-			input._test_data_num, input.precision, input.recall,
-			input.f_measure, input.accuracy, input._parametric, 
-			input._preprocessing_start, input._preprocessing_end, 
-			input._training_start, input._training_end, 
-			input._testing_start, input._testing_end, input.vis_path
+			table_name,
+			field_string,
+			value_string
 		)
 		try:
 			self._cursor.execute(command)
+			_id = self._cursor.fetchone()[0]
 		except Exception as e:
-			raise("Error writing into table %s" % (PGTABLE))
+			raise Exception(
+				"Error writing into table `%s`" % (PGTABLE),
+				e,
+				"Value string: %s" % (value_string)
+			)
+
+		self._conn.commit()
+
+		return _id
 
 	def query():
 		"""
@@ -69,3 +102,8 @@ class DBConnector():
 		"""
 		pass
 
+
+if __name__ == '__main__':
+	# kwargs = {'comment': "alright"}
+	db = DBConnector()
+	print(db.insert(table_name='test', comment='alright'))

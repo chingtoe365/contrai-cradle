@@ -7,4 +7,8 @@ scikit-learn
 joblib
 Matplotlib>=1.5.1
 python-docx==0.8.10
-psycopg2
+psycopg2==2.8.4
+docx2txt==0.8
+docx2python==1.19
+#textract==1.6.3
+pyth==0.6.0

@@ -10,8 +10,9 @@ __doc__ = """
 import nltk
 from typing import List, Dict
 
-def count_occurence(list_of_words: List) => Dict:
+def count_occurence(list_of_words: List) -> Dict:
 	"""
 	To return occurence of words as a way to measure frequency
 	"""
-	return nltk.FreqDist(list_of_words)
+	return dict(nltk.FreqDist(list_of_words))
+
