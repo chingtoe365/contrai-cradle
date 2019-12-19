@@ -30,8 +30,8 @@ from nltk.stem import PorterStemmer
 from utils import clean_string
 from word_embedding import *
 from tagging import *
-from db.db_connector import DBConnector
-from db.config import PGTABLE
+import logging
+from event_logger import logger
 
 ps = PorterStemmer()
 TRAINING_INGREDIENT_PATH = 'training_ingredients/'
@@ -48,7 +48,7 @@ class PreprocessingAbstract():
 		self._do_stemming = do_stemming
 		self._stop_words = set(stopwords.words("english"))
 		self._embdedding_method = eval(embedding_method)
-		self._tag_obtaining_method = tag_obtaining_method
+		self._tag_obtaining_method = eval(tag_obtaining_method)
 
 	@abc.abstractmethod
 	def _load_file(self, file_path):
@@ -93,13 +93,30 @@ class PreprocessingAbstract():
 
 
 	def _get_tags(
-			self, paragraph: Dict, 
-			word_vec: Dict, method: Callable) -> Dict:
+			self, quant_word_vec: Dict, word_vec: Dict, 
+			current_label: str, method: Callable) -> Dict:
 		"""
 		Get tags for topic classification 
 		"""
-		return method(paragraph, word_vec)
+		return method(quant_word_vec, word_vec, current_label)
 
+	def _definition_check(self, text):
+		return any([x in text for x in ["definition", "intepretation"]])
+
+	def _non_legal_content_check(self, paragraph):
+		"""
+		To identify paragraphs with non-legal content
+
+		Starting with words like: 
+		#contents #appendix #annex #exhibit #schedule
+		"""
+		return 	re.search(r'^contents', paragraph) or \
+			re.search(r'^appendix', paragraph) or \
+			re.search(r'^annex', paragraph) or \
+			re.search(r'^exhibit', paragraph) or \
+			re.search(r'^schedule', paragraph) or  \
+			re.search(r'^list of', paragraph) or \
+			re.search(r'^signed by', paragraph)
 
 	def _caption_as_label(
 			self,
@@ -163,15 +180,11 @@ class PreprocessingAbstract():
 		)
 
 		# add tag for the paragraph
-
-		# TODO: activate this once manual tags are done
-		# quantified_word_vec = self._get_tags(
-		# 	quantified_word_vec, 
-		# 	raw_word_vec, 
-		# 	self._tag_obtaining_method
-		# )
-		return (
-			quantified_word_vec, current_label
+		return self._get_tags(
+			quantified_word_vec, 
+			raw_word_vec, 
+			current_label,
+			self._tag_obtaining_method
 		)
 
 	def bag_of_word_dict_transformer(self) -> List:
@@ -204,24 +217,11 @@ class PreprocessingAbstract():
 		xxxx
 		]
 		"""
-		preprocessing_start = datetime.datetime.strftime(
-			datetime.datetime.now(), "%Y-%m-%d %H:%M:%S")
+
 		derived_observations = self._numerize_texts()
 		# save the list
 		self._write_json_to_file(derived_observations)
 
-		preprocessing_end = datetime.datetime.strftime(
-			datetime.datetime.now(), "%Y-%m-%d %H:%M:%S")
-
-		new_row_id = self._create_learning_entry(
-			preprocessing_start,
-			preprocessing_end
-		)
-		
-		print(
-			"""New result entry ID is: \n %s \n 
-			Please use it in training""" % (new_row_id)
-		)
 
 	def _write_json_to_file(self, output: List[Dict]):
 		"""
@@ -238,23 +238,6 @@ class PreprocessingAbstract():
 		f = open(filepath, 'w')
 		f.write(json.dumps(output))
 		f.close()
-
-	def _create_learning_entry(self, start_time, end_time) -> int:
-		"""
-		Create a learning record/entry in DB for this preprocessing action
-		trigged after every preprocessing and before a training take place
-		
-		:Return: an 'id' will be returned which can then be passed 
-		into the ML tranining process
-		"""
-		conn = DBConnector()
-		return conn.insert(
-			table_name=PGTABLE,
- 			stop_word_removed=self._remove_stop_words,
-			stemming=self._do_stemming,
-			preprocessing_start=start_time,
-			preprocessing_end=end_time
-		)
 
 
 class DocxPreprocessing(PreprocessingAbstract):
@@ -304,10 +287,22 @@ class RtfPreprocessing(PreprocessingAbstract):
 	def _numerize_texts(self) -> List:
 		derived_observations = []
 		current_label = ''
+		mock_caption_prefix = '1.'
+		preknown_caption = False
+		prematured_annex = False
+		end_of_legal_body = False
+		# current_index = 0
+		# prev_index = -1
+		# last_paragraph_fs = ''
+		# wired_document_switch_on = False
+		# text = re.sub(r'Article\s\d+}\n\\par\s', '1.', self._contract_doc)
 		#--- remove format paragraph
-		text = re.sub(r'\\rtf1[\s,\S]*?\\par ', '', self._contract_doc)
+		text = re.sub(r'\\rtf1[\s,\S]*?\\par\s', '', self._contract_doc)
+		#--remove footer paragraph
+		text = re.sub(r'\\footery\d+[\s,\S]+?\\par\s', '', self._contract_doc)
 		#---remove cross-ref: datafields
-		text = re.sub(r'{\\field[\s,\S]+?\\sectd', '', text)
+		# text = re.sub(r'{\\field[\s,\S]+?\\sectd', '', text))
+		text = re.sub(r'_Ref\d+', '', text)
 		#--- split the text by \\par
 		text = re.sub(
 			r'\\par\s', self._paragraph_separator_sub, text)
@@ -315,97 +310,174 @@ class RtfPreprocessing(PreprocessingAbstract):
 		text = re.sub(r'\\atrfend[\s,\S]*?}}}', '', text)
 		# remove some special text coloring
 		text = re.sub(r'\\bkmk.*?}', '', text)
-		#--- split the text by special string into different paragraphs
-		paragraphs = text.split(self._paragraph_separator_sub)
+		# remove images 
+		text = re.sub(r'\\picscalex[\s,\S]+?}', '', text)
+		# remove underscores
+		text = re.sub(r'__+', '', text)
+		#--- split the text by special string into different pages
+		pages = text.split('\\pagebb')
 		#--- loop through every paragraph
 		current_paragraph_section = 0
 		index_topic_map = {}
-		for paragraph in paragraphs:
-			if re.search(r'\\ul', paragraph):
-				# skip sections that doesn't look like legal content
-				# text with tag \ul will have underline which doesn't look right
-				continue
-			#--- remove all decorative tags
-			paragraph = re.sub(r'\\[a-z,A-Z,0-9,\-,\*,\']*', '', paragraph)
-			paragraph = re.sub(r'\\~', '', paragraph)
-			#--- remove cross refs 
+		try:
+			for page in pages:
+				page = page.lower()
+				paragraph_count = 0
+				#--- remove all decorative tags
+				page = re.sub(r'\\[a-z,A-Z,0-9,\-,\*,\']*', '', page)
+				page = re.sub(r'\\~', '', page)
+				#--- remove cross refs 
+				page = re.sub(r'_ref\d+', '', page)
+				#--- remove table of content bookmarks
+				page = re.sub(r'_toc\d*', '', page)
+				#--- remove curly brackets
+				page = re.sub(r'[{,}]', '', page)
+				#--- destroy TOB - example: Cont_0014.rtf
+				# Otherwise sometimes >1 DEFINITIONS in the next step will be spotted
+				page = re.sub(r'toc[\S,\s]*pageref[\s,\S]*pageref', '', page)
+				# TODOs:
+				# - hyphen in title
+				# - space and line break in title
+				# skip definition
+				page = page.strip()
+				# remove space at front just for non-legal body detection
+				pattern = re.compile(
+					'^[\\s, \\n, \\t, '+self._paragraph_separator_sub+']+'
+				)
+				page = re.sub(pattern, '', page)
+				paragraphs = page.split(self._paragraph_separator_sub)
+				
+				for paragraph in paragraphs:
+					paragraph_count += 1
+					paragraph_raw = paragraph
+					# #--- remove all decorative tags
+					# paragraph = re.sub(r'\\[a-z,A-Z,0-9,\-,\*,\']*', '', paragraph)
+					# paragraph = re.sub(r'\\~', '', paragraph)
+					# #--- remove cross refs 
 
-			#TODO: something left! a long hash string eft like this
+					# #TODO: something left! a long hash string eft like this
 
-			# 
-			paragraph = re.sub(r'_Ref\d+', '', paragraph)
-			#--- remove table of content bookmarks
-			paragraph = re.sub(r'_Toc\d*', '', paragraph)
-			#--- remove curly brackets
-			paragraph = re.sub(r'[{,}]', '', paragraph)
-			#--- destroy TOB - example: Cont_0014.rtf
-			# Otherwise sometimes >1 DEFINITIONS in the next step will be spotted
-			paragraph = re.sub(r'TOC[\S,\s]*PAGEREF[\s,\S]*PAGEREF', '', paragraph)
-			# TODOs:
-			# - hyphen in title
-			# - space and line break in title
+					# # 
+					# paragraph = re.sub(r'_ref\d+', '', paragraph)
+					# #--- remove table of content bookmarks
+					# paragraph = re.sub(r'_toc\d*', '', paragraph)
+					# #--- remove curly brackets
+					# paragraph = re.sub(r'[{,}]', '', paragraph)
+					# #--- destroy TOB - example: Cont_0014.rtf
+					# # Otherwise sometimes >1 DEFINITIONS in the next step will be spotted
+					# paragraph = re.sub(r'toc[\S,\s]*pageref[\s,\S]*pageref', '', paragraph)
+					# TODOs:
+					# - hyphen in title
+					# - space and line break in title
 
-			# skip definition
-			paragraph = paragraph.lower().strip()
-			if len(paragraph) == 0:
-				# if the paragraph is empty skip it
-				continue
+					# skip definition
+					# paragraph = paragraph.strip()
+					if len(paragraph) == 0:
+						# if the paragraph is empty skip it
+						continue
 
-			# remove space at front just for caption detection
-			paragraph = re.sub(r'^\s+', '', paragraph)
+					# remove space at front just for caption detection
+					paragraph = re.sub(r'^\s+', '', paragraph)
+					
+					# if a paragraph starts with Appendix then jump out 
+					# and stop looping through the rest of doc as those are not needed
+					# 'appendix' 'schedule' 'exhibit' 'annex'
+					# trait: page title
 
-			# if a paragraph starts with Appendix then jump out 
-			# and stop looping through the rest of doc as those are not needed
-			# 'appendix' 'schedule' 'exhibit' 'annex'
-			# trait: page title
+					if paragraph_count == 1 and \
+						self._non_legal_content_check(paragraph):
+						break
 
-			if paragraph.startswith('appendix') or \
-				paragraph.startswith('exhibit') or \
-				paragraph.startswith('annex') or \
-				paragraph.startswith('schedule'):
-				break
-			# index_search = re.search(r'(\d[\.\d]*).*Definition', paragraph)
-			# replace all white space
-			no_space_string = re.sub(r'[\s, \n]', '', paragraph)
-			caption_search = re.search(
-				r'^(\d+)[\., \s]*((?![0-9, \.]).+)', no_space_string)
-			if caption_search:
-				# caption-like string is found
-				# current_label = caption_search.group(2)
-				current_label = re.search(
-					r'\d+\.?\s*([\w, \s, \-, \,]+)', paragraph
-				).group(1).lower().strip()
-				current_label = re.sub(r'\s\s+', ' ', current_label)
-				# concatenate broken label - this happen sometimes
+					if len(derived_observations) > 0 and \
+						self._non_legal_content_check(paragraph):
+						# if paragraph starts with these words and
+						# body has already been caught 
+						# it indicates the end of legal body
+						end_of_legal_body = True
+						break
 
-				# current_paragraph_section = caption_search.group(1)
-				# index_topic_map[]
-				# current_label = 'definition'				
-			else:
-				# no caption-like string is found
-				if 'definition' in current_label or \
-					current_label == '' or \
-					not re.search(r'\w', current_label):
-					# Skip when
-					# * it is definition
-					# * it does not belong to any label
-					continue
-				else:
-					# if no special skipping needed then record it
-					# in bag of words
-					# remove bullet numbering & letters (roman)
-					paragraph = re.sub(r'^[\d, \.]*', '', paragraph)
-					paragraph = re.sub(r'[\(]*\w\)', '', paragraph)
-					# remove cross ref without links
-					paragraph = re.sub(r'[clause, section]\s\d+[\.\d+]*', '', paragraph)
-					# replace tilde with space which sometimes happen
-					# eg. Cont_0001.rtf section 6.3
-					paragraph = re.sub(r'~', ' ', paragraph)
-					#TODO: tokenize that easy? white spaces?
-					raw_word_vec = self._tokenize(paragraph)
-					# remove tokens with only non-alphabetical chars
-					raw_word_vec = [w for w in raw_word_vec if re.search(r'\w', w)]
-					derived_observations.append(
-						self._word_scan(raw_word_vec, current_label)
-					)
+					# captions indicated by 'Article' keyword
+					# special treatment for Cont_0371.rtf
+					if preknown_caption:
+						paragraph = mock_caption_prefix + paragraph
+					if re.search(r'^article\s\d+', paragraph):
+						preknown_caption = True
+					else:
+						preknown_caption = False
+
+					# replace all white space
+					no_space_string = re.sub(r'[\s, \n]', '', paragraph)
+					# this caption search has excluded nested bullet numbers
+					# eg. 1.1.3 a sentence followed 
+					# will be excluded
+					normal_caption_search = re.search(
+						r'^(\d+)[\., \s, \)]*((?![0-9, \., \(]).+)', no_space_string)
+
+					if (
+							normal_caption_search and \
+							not re.search(r'\\outlinelevel1', paragraph_raw)
+							# not prematured_annex
+						):
+						# define caption paragraph capture rules
+						# - caption-like paragraph
+						# - the captured index is increasing OR 
+						# it's the first time a caption captured
+
+						# speical treatment for excluding normal clause in definition
+						# as caption, eg. Cont_0357.rtf
+						# if caption index "1" appears twice then this is the abnormal one
+						capcap = re.search(
+							r'(\d+)\.?\)?\s*([\w, \s, \-, \,]+)', paragraph
+						)
+
+						current_label = capcap.group(2).lower().strip()
+
+						current_label = re.sub(r'\s\s+', ' ', current_label)
+						# concatenate broken label - this happen sometimes
+
+						# current_paragraph_section = caption_search.group(1)
+						# index_topic_map[]
+						# current_label = 'definition'				
+					else:
+						# no caption-like string is found
+						if self._definition_check(current_label) or \
+							current_label == '' or \
+							not re.search(r'\w', current_label):
+							# Skip when
+							# * it is definition
+							# * it does not belong to any label			
+							# # save font size to last_paragraph_fs for next
+							# last_paragraph_fs = font_size
+							continue
+						else:
+							# if no special skipping needed then record it
+							# in bag of words
+							# remove bullet numbering & letters (roman)
+							paragraph = re.sub(r'^[\d, \.]*', '', paragraph)
+							paragraph = re.sub(r'[\(]*\w\)', '', paragraph)
+							# remove cross ref without links
+							paragraph = re.sub(r'[clause, section]\s\d+[\.\d+]*', '', paragraph)
+							# replace tilde with space which sometimes happen
+							# eg. Cont_0001.rtf section 6.3
+							paragraph = re.sub(r'~', ' ', paragraph)
+							#TODO: tokenize that easy? white spaces?
+							raw_word_vec = self._tokenize(paragraph)
+							# remove tokens with only non-alphabetical chars
+							raw_word_vec = [w for w in raw_word_vec if re.search(r'\w', w)]
+							paragraph_output = self._word_scan(raw_word_vec, current_label)
+							if paragraph_output[0] == {}:
+								continue
+							else:
+								derived_observations.append(
+									paragraph_output	
+								)
+				if end_of_legal_body:
+					break
+
+		except Exception as e:
+			logger.error(self._file_path+"\n Some error happen in preprocessing")
+
+		if len(derived_observations) == 0:
+			logger.error(self._file_path+"\n Empty")
+
 		return derived_observations

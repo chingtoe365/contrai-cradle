@@ -1,4 +1,4 @@
-# Word embedding methods
+# Tagging methods
 # Author: Jintao Long <jintaolong@brookes.ac.uk>
 
 __doc__ = """
@@ -8,18 +8,35 @@ __doc__ = """
 """
 
 import nltk
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
-def no_label(quan_raw_word_vec: Dict, raw_word_vec: Dict) -> Dict:
+def no_label(
+		quan_raw_word_vec: Dict, 
+		raw_word_vec: Dict,
+		current_label: str
+	) -> Tuple:
 	"""
 	Do nothing as in this case no label is needed
 	"""
-	return quan_raw_word_vec
+	return (quan_raw_word_vec)
 
-def label_at_tail(quan_raw_word_vec: Dict, raw_word_vec: Dict) -> Dict:
+def label_at_tail(
+		quan_raw_word_vec: Dict, 
+		raw_word_vec: Dict,
+		current_label: str
+	) -> Tuple:
 	"""
 	In this case label is tailing at the end of the paragraph
 	"""
-	return {
+	return (
 		quan_raw_word_vec, raw_word_vec[-1]
-	}
+	)
+
+def heading_as_label(
+		quan_raw_word_vec: Dict, 
+		raw_word_vec: Dict,
+		current_label: str
+	) -> Tuple:
+	return (
+			quan_raw_word_vec, current_label
+		)
