@@ -7,4 +7,5 @@ PGDATABASE="evaluation"
 PGUSER="postgres"
 PGPASSWORD="password"
 
-PGTABLE="results"
+PPC_TABLE="preprocessing"
+EVL_TABLE="evaluation"

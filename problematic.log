@@ -1,0 +1,69 @@
+doc probs:
+
+349
+278
+167
+222
+
+special docs
+240
+
+cannot decide
+313
+
+too short
+323
+
+hard and complicate
+278
+240
+222
+
+357
+
+all schedule
+167
+
+wrong numbering 
+148
+
+no number
+84
+328
+373
+
+
+
+
+signature issues
+
+
+grep -lF 'fffffffffffffff' $(ls | grep ^Cont_)
+
+
+\\footer[\s,\S]+?PAGE
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+price reviews headings
+
+357
+114
+344
+345
+62
+
+
+

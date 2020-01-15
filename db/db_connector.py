@@ -87,7 +87,7 @@ class DBConnector():
 			_id = self._cursor.fetchone()[0]
 		except Exception as e:
 			raise Exception(
-				"Error writing into table `%s`" % (PGTABLE),
+				"Error writing into table `%s`" % (table_name),
 				e,
 				"Value string: %s" % (value_string)
 			)
@@ -96,11 +96,55 @@ class DBConnector():
 
 		return _id
 
-	def query():
+	def update(self, table_name, ID, **kwargs):
 		"""
-		query data
+		each key in kwargs should be correspond to each columns
+		in table 'results' in database 'evaluation'
 		"""
-		pass
+		# field_string = ','.join(kwargs.keys())
+		# value_string = ','.join(
+		# 	["'"+str(x)+"'" for x in kwargs.values()]
+		# )s
+		value_string = ','.join(
+			[str(y[0])+"='"+str(y[1])+"'" for y in kwargs.items()]
+		)
+		command = """
+			UPDATE %s SET %s WHERE id=%s
+		""" % (
+			table_name,
+			value_string,
+			ID
+		)
+		try:
+			self._cursor.execute(command)
+		except Exception as e:
+			raise Exception(
+				"Error writing into table `%s`" % (table_name),
+				e,
+				"Value string: %s" % (value_string)
+			)
+
+		self._conn.commit()
+
+	def get_sample_filename_by_id(self, sample_id) -> str:
+		"""
+		get sample file name by id
+		"""
+		filename = ''
+		command = "SELECT sample_file_path FROM %s WHERE id=%s" % (
+			PPC_TABLE,
+			sample_id
+		)
+		try:
+			self._cursor.execute(command)
+		except Exception as e:
+			raise Exception(
+				"Error reading from table `results`",
+				e
+			)
+
+		return self._cursor.fetchall()
+		
 
 
 if __name__ == '__main__':

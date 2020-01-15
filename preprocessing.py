@@ -35,13 +35,14 @@ from event_logger import logger
 
 ps = PorterStemmer()
 TRAINING_INGREDIENT_PATH = 'training_ingredients/'
+MIDDLE_INGREDIENT_PATH = 'middleware_ingredients/'
 
 class PreprocessingAbstract():
 	"""
 	Bundle of preprocessing methods
 	"""
 	def __init__(self, file_path, embedding_method, tag_obtaining_method,
-			remove_stop_words: bool, do_stemming: bool):
+			remove_stop_words: bool, do_stemming: bool, strigent_topic: bool):
 		self._file_path = file_path
 		self._contract_doc = self._load_file(self._file_path)
 		self._remove_stop_words = remove_stop_words
@@ -49,6 +50,7 @@ class PreprocessingAbstract():
 		self._stop_words = set(stopwords.words("english"))
 		self._embdedding_method = eval(embedding_method)
 		self._tag_obtaining_method = eval(tag_obtaining_method)
+		self._strigent_topic = strigent_topic
 
 	@abc.abstractmethod
 	def _load_file(self, file_path):
@@ -94,11 +96,12 @@ class PreprocessingAbstract():
 
 	def _get_tags(
 			self, quant_word_vec: Dict, word_vec: Dict, 
-			current_label: str, method: Callable) -> Dict:
+			current_label: str, method: Callable, 
+			strigent: bool) -> Dict:
 		"""
 		Get tags for topic classification 
 		"""
-		return method(quant_word_vec, word_vec, current_label)
+		return method(quant_word_vec, word_vec, current_label, strigent)
 
 	def _definition_check(self, text):
 		return any([x in text for x in ["definition", "intepretation"]])
@@ -116,7 +119,8 @@ class PreprocessingAbstract():
 			re.search(r'^exhibit', paragraph) or \
 			re.search(r'^schedule', paragraph) or  \
 			re.search(r'^list of', paragraph) or \
-			re.search(r'^signed by', paragraph)
+			re.search(r'^signed by', paragraph) or \
+			re.search(r'^service block statement of work', paragraph)
 
 	def _caption_as_label(
 			self,
@@ -124,7 +128,7 @@ class PreprocessingAbstract():
 			word_vec: List[str], 
 			label_wc_limit=7, 
 			stop_word_count_limit=2, 
-			) -> bool:
+		) -> bool:
 		# search up-level caption as tag/topic
 		"""
 		Rules:
@@ -153,7 +157,7 @@ class PreprocessingAbstract():
 	def _numerize_texts(self) -> List:
 		pass
 
-	def _word_scan(self, raw_word_vec, current_label) -> List:
+	def _word_scan(self, raw_word_vec, current_label, strigent) -> List:
 		list_of_words = []
 		# switches to remove stop words and do stemming
 		if self._remove_stop_words and self._do_stemming:
@@ -184,7 +188,8 @@ class PreprocessingAbstract():
 			quantified_word_vec, 
 			raw_word_vec, 
 			current_label,
-			self._tag_obtaining_method
+			self._tag_obtaining_method,
+			strigent
 		)
 
 	def bag_of_word_dict_transformer(self) -> List:
@@ -218,12 +223,13 @@ class PreprocessingAbstract():
 		]
 		"""
 
-		derived_observations = self._numerize_texts()
+		derived_observations, topic_file_pointer = self._numerize_texts()
 		# save the list
-		self._write_json_to_file(derived_observations)
+		self._write_json_to_file(TRAINING_INGREDIENT_PATH, derived_observations)
+		self._write_json_to_file(MIDDLE_INGREDIENT_PATH, topic_file_pointer)
 
 
-	def _write_json_to_file(self, output: List[Dict]):
+	def _write_json_to_file(self, path_to_write, output: List[Dict]):
 		"""
 		Save list of dictionaries and write to txt file
 		"""
@@ -232,7 +238,7 @@ class PreprocessingAbstract():
 		filename = filebase
 		filepath = os.path.join(
 			os.getcwd(), 
-			TRAINING_INGREDIENT_PATH, 
+			path_to_write, 
 			filebase+'.txt'
 		)
 		f = open(filepath, 'w')
@@ -273,9 +279,20 @@ class DocxPreprocessing(PreprocessingAbstract):
 					current_label = clean_string(text)
 
 				derived_observations.append(
-					self._word_scan(raw_word_vec, current_label)
+					self._word_scan(
+						raw_word_vec, current_label, self._strigent_topic
+					)
+				)								
+				topic_file_pointer.append(
+					self._word_scan(
+						raw_word_vec, current_label, self._strigent_topic
+					) + \
+					(
+						current_label,
+						os.path.basename(self._file_path),
+					)
 				)
-		return derived_observations
+		return derived_observations, topic_file_pointer
 
 
 class RtfPreprocessing(PreprocessingAbstract):
@@ -286,6 +303,9 @@ class RtfPreprocessing(PreprocessingAbstract):
 
 	def _numerize_texts(self) -> List:
 		derived_observations = []
+		# add a file to point topic to file
+		# only used as reference for research
+		topic_file_pointer = []
 		current_label = ''
 		mock_caption_prefix = '1.'
 		preknown_caption = False
@@ -324,7 +344,7 @@ class RtfPreprocessing(PreprocessingAbstract):
 				page = page.lower()
 				paragraph_count = 0
 				#--- remove all decorative tags
-				page = re.sub(r'\\[a-z,A-Z,0-9,\-,\*,\']*', '', page)
+				page = re.sub(r'\\[a-z,A-Z,0-9,\-,\*,\',\~]*', '', page)
 				page = re.sub(r'\\~', '', page)
 				#--- remove cross refs 
 				page = re.sub(r'_ref\d+', '', page)
@@ -370,12 +390,6 @@ class RtfPreprocessing(PreprocessingAbstract):
 					# - hyphen in title
 					# - space and line break in title
 
-					# skip definition
-					# paragraph = paragraph.strip()
-					if len(paragraph) == 0:
-						# if the paragraph is empty skip it
-						continue
-
 					# remove space at front just for caption detection
 					paragraph = re.sub(r'^\s+', '', paragraph)
 					
@@ -405,13 +419,27 @@ class RtfPreprocessing(PreprocessingAbstract):
 					else:
 						preknown_caption = False
 
+					# replace line break
+					paragraph = re.sub(r'\s*\n\s*', '', paragraph)
+					# replace consecutive spaces to just one space
+					# paragraph = re.sub(r'\s\s+', ' ', paragraph)
+
+					# skip definition
+					# paragraph = paragraph.strip()
+					if len(paragraph) == 0 or \
+						not re.search(r'[a-zA-Z]', paragraph):
+						# skip it when
+						# - paragraph is empty
+						# - only digits and special chars
+						continue
+
 					# replace all white space
 					no_space_string = re.sub(r'[\s, \n]', '', paragraph)
 					# this caption search has excluded nested bullet numbers
 					# eg. 1.1.3 a sentence followed 
 					# will be excluded
 					normal_caption_search = re.search(
-						r'^(\d+)[\., \s, \)]*((?![0-9, \., \(]).+)', no_space_string)
+						r'^(\d+)[\., \s, \)]*((?![0-9, \., \(, \", \*, \']).+)', no_space_string)
 
 					if (
 							normal_caption_search and \
@@ -427,12 +455,13 @@ class RtfPreprocessing(PreprocessingAbstract):
 						# as caption, eg. Cont_0357.rtf
 						# if caption index "1" appears twice then this is the abnormal one
 						capcap = re.search(
-							r'(\d+)\.?\)?\s*([\w, \s, \-, \,]+)', paragraph
+							r'(\d+)\.?\)?\[?\s*([\w, \s, \-, \,]+)', paragraph
 						)
 
 						current_label = capcap.group(2).lower().strip()
 
 						current_label = re.sub(r'\s\s+', ' ', current_label)
+
 						# concatenate broken label - this happen sometimes
 
 						# current_paragraph_section = caption_search.group(1)
@@ -442,7 +471,7 @@ class RtfPreprocessing(PreprocessingAbstract):
 						# no caption-like string is found
 						if self._definition_check(current_label) or \
 							current_label == '' or \
-							not re.search(r'\w', current_label):
+							not re.search(r'[a-zA-Z]', current_label):
 							# Skip when
 							# * it is definition
 							# * it does not belong to any label			
@@ -464,12 +493,21 @@ class RtfPreprocessing(PreprocessingAbstract):
 							raw_word_vec = self._tokenize(paragraph)
 							# remove tokens with only non-alphabetical chars
 							raw_word_vec = [w for w in raw_word_vec if re.search(r'\w', w)]
-							paragraph_output = self._word_scan(raw_word_vec, current_label)
+							paragraph_output = self._word_scan(
+								raw_word_vec, current_label, self._strigent_topic
+							)
 							if paragraph_output[0] == {}:
 								continue
 							else:
 								derived_observations.append(
 									paragraph_output	
+								)
+								topic_file_pointer.append(
+									paragraph_output + \
+										(
+											current_label,
+											os.path.basename(self._file_path),
+										)
 								)
 				if end_of_legal_body:
 					break
@@ -480,4 +518,4 @@ class RtfPreprocessing(PreprocessingAbstract):
 		if len(derived_observations) == 0:
 			logger.error(self._file_path+"\n Empty")
 
-		return derived_observations
+		return derived_observations, topic_file_pointer

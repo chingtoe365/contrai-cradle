@@ -12,3 +12,4 @@ docx2txt==0.8
 docx2python==1.19
 #textract==1.6.3
 pyth==0.6.0
+gensim==3.8.1
