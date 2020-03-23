@@ -23,13 +23,13 @@ LABEL_VALUE_MAP = {
 	"tupe": 3,
 	"supplier responsibilities": 4, #"supplier responsibilities (may contain warranties)"
 	"customer obligations": 5, # "customer obligations (may contain warranties)"
-	"non-solicitation": 6,
+	"non solicitation": 6,
 	"change control ": 7,
 	"charges payments payment": 8, #"charges, payments and payment terms"
 	"prices": 9,
 	"price reviews cpi rpi annual": 10, #"price reviews (cpi/rpi/annual)"
 	"expenses": 11,
-	"ipr": 12,
+	"intellectual property right": 12, # ipr
 	"compliance laws policies law policy": 13, #"compliance with laws and policies"
 	"data protection": 14,
 	"confidentiality ": 15,
@@ -52,7 +52,7 @@ LABEL_VALUE_MAP = {
 	"several liability": 31,
 	"notices notice": 32, #"notices"
 	"counterparts": 33,
-	"adr": 34,
+	"alternative dispute resolution": 34, #adr
 	"expert determination": 35,
 	"warranties": 36, #"warranties"
 	"indemnities": 37, #"indemnities"
@@ -61,7 +61,7 @@ LABEL_VALUE_MAP = {
 	"scope": 40, #"""scope (may be in separate schedule, or could be in body of agreement)"""
 	"services": 41, # "services"
 	"deliverables": 42, #"deliverables"
-	"testing pre-delivery": 43, #"testing (pre-delivery and acceptance)"
+	"testing pre delivery": 43, #"testing (pre-delivery and acceptance)"
 	"acceptance": 44,
 	"ownership": 45,
 	"rights transfer reproduction adaptation": 46, #"""rights in the software (transfer, reproduction, use, adaptation)"""
@@ -69,7 +69,7 @@ LABEL_VALUE_MAP = {
 	"support": 48, #"support (may be in separate schedule)"
 	"training": 49,
 	"personnel": 50,
-	"anti-bribery": 51,
+	"anti bribery": 51,
 	"export control": 52,
 	"insurance": 53,
 	"subscriptions": 54, #"subscriptions"

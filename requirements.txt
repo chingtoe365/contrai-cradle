@@ -13,3 +13,6 @@ docx2python==1.19
 #textract==1.6.3
 pyth==0.6.0
 gensim==3.8.1
+pyemd==0.5.1
+contractions==0.0.24
+inflect==4.1.0

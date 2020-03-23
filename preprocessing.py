@@ -19,15 +19,22 @@ nltk.download('stopwords')
 import docx
 import os
 import abc
-import re
+import re, string, unicodedata
 import datetime
 import json
+import pickle
+import contractions
+import inflect
+import pandas as pd
+from bs4 import BeautifulSoup
+
 
 from typing import Callable, Dict, List
 from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer
+from sklearn.feature_extraction.text import TfidfVectorizer
 
-from utils import clean_string
+from utils import clean_string, update_dict_by_accumulate
 from word_embedding import *
 from tagging import *
 import logging
@@ -36,21 +43,26 @@ from event_logger import logger
 ps = PorterStemmer()
 TRAINING_INGREDIENT_PATH = 'training_ingredients/'
 MIDDLE_INGREDIENT_PATH = 'middleware_ingredients/'
+WORD2VEC_INGREDIENT_PATH = 'word2vec_ingredients/'
 
 class PreprocessingAbstract():
 	"""
 	Bundle of preprocessing methods
 	"""
 	def __init__(self, file_path, embedding_method, tag_obtaining_method,
-			remove_stop_words: bool, do_stemming: bool, strigent_topic: bool):
+			remove_stop_words: bool, do_stemming: bool, strigent_topic: bool,
+			ngram: int, multiple_paragraphs: bool, ngram_mixed:bool):
 		self._file_path = file_path
 		self._contract_doc = self._load_file(self._file_path)
 		self._remove_stop_words = remove_stop_words
 		self._do_stemming = do_stemming
 		self._stop_words = set(stopwords.words("english"))
-		self._embdedding_method = eval(embedding_method)
+		self._embedding_method = embedding_method
 		self._tag_obtaining_method = eval(tag_obtaining_method)
 		self._strigent_topic = strigent_topic
+		self._ngram = ngram
+		self._multiple_paragraphs = multiple_paragraphs
+		self._ngram_mixed = ngram_mixed
 
 	@abc.abstractmethod
 	def _load_file(self, file_path):
@@ -58,7 +70,67 @@ class PreprocessingAbstract():
 		Load file
 		"""
 		pass
+	
+	def _strip_html(self, text):
+	    soup = BeautifulSoup(text, "html.parser")
+	    return soup.get_text()
 
+	def _remove_between_square_brackets(self, text):
+	    return re.sub(r'\[[^]]*\]', '', text)
+
+	def denoise_text(self, text):
+	    text = self._strip_html(text)
+	    text = self._remove_between_square_brackets(text)
+	    return text
+	
+	def replace_contractions(self, text):
+	    """Replace contractions in string of text"""
+	    return contractions.fix(text)
+	
+	def _remove_non_ascii(self, words):
+	    """Remove non-ASCII characters from list of tokenized words"""
+	    new_words = []
+	    for word in words:
+	        new_word = unicodedata.normalize('NFKD', word).encode(
+	        	'ascii', 'ignore').decode('utf-8', 'ignore')
+	        new_words.append(new_word)
+	    return new_words
+
+	def _to_lowercase(self, words):
+	    """Convert all characters to lowercase from list of tokenized words"""
+	    new_words = []
+	    for word in words:
+	        new_word = word.lower()
+	        new_words.append(new_word)
+	    return new_words
+
+	def _remove_punctuation(self, words):
+	    """Remove punctuation from list of tokenized words"""
+	    new_words = []
+	    for word in words:
+	        new_word = re.sub(r'[^\w\s]', '', word)
+	        if new_word != '':
+	            new_words.append(new_word)
+	    return new_words
+
+	def _replace_numbers(self, words):
+	    """Replace all interger occurrences in list of tokenized words with textual representation"""
+	    p = inflect.engine()
+	    new_words = []
+	    for word in words:
+	        if word.isdigit():
+	            new_word = p.number_to_words(word)
+	            new_words.append(new_word)
+	        else:
+	            new_words.append(word)
+	    return new_words
+
+	def normalize(self, words):
+	    words = self._remove_non_ascii(words)
+	    words = self._to_lowercase(words)
+	    words = self._remove_punctuation(words)
+	    words = self._replace_numbers(words)
+	    return words
 
 	def _tokenize(self, text):
 		"""
@@ -86,12 +158,12 @@ class PreprocessingAbstract():
 		return ps.stem(word)
 
 	def _word_embedding(
-			self, word_list: List[str], method: Callable) -> Dict:
+			self, method: Callable, list_of_words: List) -> Dict:
 		"""
 		word embedding that turn words into quantitative values 
 		which can then be machine learned
 		"""
-		return method(word_list)
+		return method(list_of_words)
 
 
 	def _get_tags(
@@ -159,6 +231,7 @@ class PreprocessingAbstract():
 
 	def _word_scan(self, raw_word_vec, current_label, strigent) -> List:
 		list_of_words = []
+		# args_embedding_input = {}
 		# switches to remove stop words and do stemming
 		if self._remove_stop_words and self._do_stemming:
 			for word in raw_word_vec:
@@ -179,8 +252,32 @@ class PreprocessingAbstract():
 			for word in raw_word_vec:
 				list_of_words.append(word)
 
+		# if self._embedding_method != 'tfidf':
+		# 	args_embedding_input['list_of_words'] = list_of_words
+		list_of_words_original_copy = list_of_words.copy()
+		if self._ngram_mixed:
+			if self._ngram > 1:
+				# if more ngram split is required
+				for i in range(2,(self._ngram+1)):
+					list_of_words_copy = list_of_words_original_copy.copy()
+					while len(list_of_words_copy) >= i:
+						list_of_words.append(
+							' '.join(list_of_words_copy[0:i])
+							# list_of_words_copy[0]+' '+list_of_words_copy[1]
+						)
+						list_of_words_copy = list_of_words_copy[1:]
+		else:
+			list_of_words_copy = list_of_words_original_copy.copy()
+			list_of_words = []
+			while len(list_of_words_copy) >= self._ngram:
+				list_of_words.append(
+					' '.join(list_of_words_copy[0:i])
+					# list_of_words_copy[0]+' '+list_of_words_copy[1]
+				)
+				list_of_words_copy = list_of_words_copy[1:]
+		method = eval(self._embedding_method)
 		quantified_word_vec = self._word_embedding(
-			list_of_words, self._embdedding_method
+			method, list_of_words
 		)
 
 		# add tag for the paragraph
@@ -223,10 +320,23 @@ class PreprocessingAbstract():
 		]
 		"""
 
-		derived_observations, topic_file_pointer = self._numerize_texts()
+		numeric_objects = self._numerize_texts()
 		# save the list
-		self._write_json_to_file(TRAINING_INGREDIENT_PATH, derived_observations)
-		self._write_json_to_file(MIDDLE_INGREDIENT_PATH, topic_file_pointer)
+		if 'derived_observations' in numeric_objects:
+			self._write_json_to_file(
+				TRAINING_INGREDIENT_PATH, 
+				numeric_objects['derived_observations']
+			)
+		if 'topic_file_pointer' in numeric_objects:
+			self._write_json_to_file(
+				MIDDLE_INGREDIENT_PATH, 
+				numeric_objects['topic_file_pointer']
+			)
+		if 'word2vec_corpus' in numeric_objects:
+			self._write_list_to_file(
+				WORD2VEC_INGREDIENT_PATH, 
+				numeric_objects['word2vec_corpus']
+			)
 
 
 	def _write_json_to_file(self, path_to_write, output: List[Dict]):
@@ -245,17 +355,37 @@ class PreprocessingAbstract():
 		f.write(json.dumps(output))
 		f.close()
 
+	def _write_list_to_file(self, path_to_write, output: List[List[str]]):
+		"""
+		Save list of dictionaries and write to txt file
+		"""
+		filebase = os.path.splitext(os.path.basename(
+				self._file_path))[0]
+		filename = filebase
+		filepath = os.path.join(
+			os.getcwd(), 
+			path_to_write, 
+			filebase+'.data'
+		)
+		f = open(filepath, 'wb')
+		pickle.dump(output, f)
+		f.close()
+
 
 class DocxPreprocessing(PreprocessingAbstract):
 	def _load_file(self, file_path):
 		full_path = os.path.join(os.getcwd(), file_path)
 		return docx.Document(full_path)
 
+
 	def _numerize_texts(self) -> List:
 		derived_observations = []
+		word2vec_corpus = []
+		topic_file_pointer = []
 		current_label = ''
 		if len(self._contract_doc.paragraphs) > 0:
 			for p in self._contract_doc.paragraphs:
+				word_vec = []
 				if len(p.text) == 0:
 					# if the paragraph is empty skip it
 					continue
@@ -270,9 +400,16 @@ class DocxPreprocessing(PreprocessingAbstract):
 				p.text.lower().startswith('schedule'):
 					break
 
+				# denoise text
+				text = self.denoise_text(p.text)
+				# replace contractions
+				# eg. don't --> do n't
+				text = self.replace_contractions(text)
 				# remove curly brackets
-				text = re.sub(r'[{,}]', '', p.text)
+				text = re.sub(r'[{,}]', '', text)
 				raw_word_vec = self._tokenize(text)
+				# normalize the tokens
+				raw_word_vec = self.normalize(raw_word_vec)
 				# make TAG_OR_NOT judgement first as we use stop words to identify
 				# TODO: REMOVE this when we have mannual tags in documents
 				if self._caption_as_label(text, raw_word_vec):
@@ -292,7 +429,18 @@ class DocxPreprocessing(PreprocessingAbstract):
 						os.path.basename(self._file_path),
 					)
 				)
-		return derived_observations, topic_file_pointer
+				if self._do_stemming:
+					for word in raw_word_vec:
+						word_vec.append(self._stemming(word))
+				else:
+					word_vec = raw_word_vec
+				word2vec_corpus.append(word_vec)
+
+		return {
+			'derived_observations': derived_observations,
+			'topic_file_pointer': topic_file_pointer, 
+			'word2vec_corpus': word2vec_corpus
+		}
 
 
 class RtfPreprocessing(PreprocessingAbstract):
@@ -303,9 +451,12 @@ class RtfPreprocessing(PreprocessingAbstract):
 
 	def _numerize_texts(self) -> List:
 		derived_observations = []
+		same_topic_BOW = []
 		# add a file to point topic to file
 		# only used as reference for research
 		topic_file_pointer = []
+		tfidf_calculation_corpus = []
+		tfidf_calculation_topic = []
 		current_label = ''
 		mock_caption_prefix = '1.'
 		preknown_caption = False
@@ -370,6 +521,7 @@ class RtfPreprocessing(PreprocessingAbstract):
 				for paragraph in paragraphs:
 					paragraph_count += 1
 					paragraph_raw = paragraph
+
 					# #--- remove all decorative tags
 					# paragraph = re.sub(r'\\[a-z,A-Z,0-9,\-,\*,\']*', '', paragraph)
 					# paragraph = re.sub(r'\\~', '', paragraph)
@@ -441,6 +593,13 @@ class RtfPreprocessing(PreprocessingAbstract):
 					normal_caption_search = re.search(
 						r'^(\d+)[\., \s, \)]*((?![0-9, \., \(, \", \*, \']).+)', no_space_string)
 
+					# last step cleaning
+									# denoise text
+					paragraph = self.denoise_text(paragraph)
+					# replace contractions
+					# eg. don't --> do n't
+					paragraph = self.replace_contractions(paragraph)
+
 					if (
 							normal_caption_search and \
 							not re.search(r'\\outlinelevel1', paragraph_raw)
@@ -450,7 +609,6 @@ class RtfPreprocessing(PreprocessingAbstract):
 						# - caption-like paragraph
 						# - the captured index is increasing OR 
 						# it's the first time a caption captured
-
 						# speical treatment for excluding normal clause in definition
 						# as caption, eg. Cont_0357.rtf
 						# if caption index "1" appears twice then this is the abnormal one
@@ -462,6 +620,24 @@ class RtfPreprocessing(PreprocessingAbstract):
 
 						current_label = re.sub(r'\s\s+', ' ', current_label)
 
+						# clear BOW in the case when _multiple_paragraphs is set True
+						if self._multiple_paragraphs and \
+							same_topic_BOW:
+							# if there is something in current BOW, add it first to output
+							# as it comes to a finish for previous topic
+							derived_observations.append(same_topic_BOW)
+							topic_file_pointer.append(
+								same_topic_BOW + \
+									[
+										current_label,
+										os.path.basename(self._file_path),
+									]
+							)
+							tfidf_calculation_corpus.append(' '.join(
+								[k for k in same_topic_BOW[0]]
+							))
+							tfidf_calculation_topic.append(int(same_topic_BOW[1]))
+							same_topic_BOW = []
 						# concatenate broken label - this happen sometimes
 
 						# current_paragraph_section = caption_search.group(1)
@@ -477,6 +653,7 @@ class RtfPreprocessing(PreprocessingAbstract):
 							# * it does not belong to any label			
 							# # save font size to last_paragraph_fs for next
 							# last_paragraph_fs = font_size
+
 							continue
 						else:
 							# if no special skipping needed then record it
@@ -491,26 +668,62 @@ class RtfPreprocessing(PreprocessingAbstract):
 							paragraph = re.sub(r'~', ' ', paragraph)
 							#TODO: tokenize that easy? white spaces?
 							raw_word_vec = self._tokenize(paragraph)
+							# normalize the tokens
+							raw_word_vec = self.normalize(raw_word_vec)
 							# remove tokens with only non-alphabetical chars
 							raw_word_vec = [w for w in raw_word_vec if re.search(r'\w', w)]
+
 							paragraph_output = self._word_scan(
 								raw_word_vec, current_label, self._strigent_topic
 							)
-							if paragraph_output[0] == {}:
+							# if len(paragraph_output) == 0:
+							if len(paragraph_output) == 0:
 								continue
 							else:
-								derived_observations.append(
-									paragraph_output	
-								)
-								topic_file_pointer.append(
-									paragraph_output + \
-										(
-											current_label,
-											os.path.basename(self._file_path),
-										)
-								)
+								if paragraph_output[0] == {}:
+									continue
+								
+								if self._multiple_paragraphs:
+									if same_topic_BOW:
+										# combine paragraphs in same topic as one clause
+										same_topic_BOW = [update_dict_by_accumulate(
+											same_topic_BOW[0],
+											paragraph_output[0]
+										)] + [paragraph_output[1]]
+
+									else:
+										same_topic_BOW = paragraph_output
+								else:
+									derived_observations.append(
+										paragraph_output	
+									)
+									topic_file_pointer.append(
+										paragraph_output + \
+											(
+												current_label,
+												os.path.basename(self._file_path),
+											)
+									)
+									# for tfidf calculation
+									tfidf_calculation_corpus.append(' '.join(
+										[k for k in paragraph_output[0]]
+									))
+									tfidf_calculation_topic.append(int(paragraph_output[1]))
 				if end_of_legal_body:
 					break
+
+			if self._embedding_method == 'tfidf':
+				derived_observations = []
+				vectorizer = TfidfVectorizer()
+				tfidf_mat = vectorizer.fit_transform(
+					tfidf_calculation_corpus).toarray()
+				words_for_tfidf_mat = vectorizer.get_feature_names()
+				# pd.DataFrame(tfidf_mat)
+				for i in range(tfidf_mat.shape[0]):
+					derived_observations.append([
+						dict(zip(words_for_tfidf_mat, tfidf_mat[i])), 
+						tfidf_calculation_topic[i]
+					])
 
 		except Exception as e:
 			logger.error(self._file_path+"\n Some error happen in preprocessing")
@@ -518,4 +731,7 @@ class RtfPreprocessing(PreprocessingAbstract):
 		if len(derived_observations) == 0:
 			logger.error(self._file_path+"\n Empty")
 
-		return derived_observations, topic_file_pointer
+		return {
+			'derived_observations': derived_observations,
+			'topic_file_pointer': topic_file_pointer
+		}

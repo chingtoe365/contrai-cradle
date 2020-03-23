@@ -11,6 +11,7 @@ import json
 import datetime
 import os
 import logging
+import pickle
 
 from os import listdir
 
@@ -26,9 +27,10 @@ PREPROCESS_CLS_MAP = {
 }
 TRAINING_INGREDIENT_PATH = 'training_ingredients/'
 MIDDLE_INGREDIENT_PATH = 'middleware_ingredients/'
+WORD2VEC_INGREDIENT_PATH = 'word2vec_ingredients/'
 CONTRACT_PATH = 'contracts/'
 
-def merge_datasets(path_to_merge, filename=None) -> str:
+def merge_datasets(path_to_merge, suffix, filename=None) -> str:
 	# get list of json txt files
 	training_ingredient_path = os.path.join(
 		os.getcwd(),
@@ -43,22 +45,36 @@ def merge_datasets(path_to_merge, filename=None) -> str:
 				training_ingredient_path,
 				file
 			)
-			json_txt = open(filepath).read()
-			file_json = json.loads(json_txt)
-			aggregate += file_json
+			if suffix == 'txt':
+				json_txt = open(filepath).read()
+				file_json = json.loads(json_txt)
+				aggregate += file_json
+			elif suffix == 'data':
+				f = open(filepath, 'rb')
+				l = pickle.load(f)
+				aggregate += l
+				f.close()
+			else:
+				pass
 	if not filename:
 		timestamp = datetime.datetime.strftime(
 				datetime.datetime.now(), "%Y%m%d%H%M%S")
-		filename = timestamp+'.txt'
+		filename = timestamp
 	output_filepath = os.path.join(
 		os.getcwd(), 
-		path_to_merge, 
-		filename
+		path_to_merge,
+		filename+'.'+suffix
 	)
-	f = open(output_filepath, 'w')
-	f.write(json.dumps(aggregate))
-	f.close()
-	return filename
+	if suffix == 'txt':
+		f = open(output_filepath, 'w')
+		f.write(json.dumps(aggregate))
+		f.close()
+	elif suffix == 'data':
+		f = open(output_filepath, 'wb')
+		pickle.dump(aggregate, f)
+		f.close()
+
+	return filename+'.txt', len(aggregate)
 
 def create_learning_entry(
 		start_time, 
@@ -68,8 +84,13 @@ def create_learning_entry(
 		remove_stop_words: str,
 		do_stemming: str,
 		strigent_topic: str,
+		ngram: int,
+		ngram_mixed: str,
+		multiple_paragraphs: str,
+		sample_count: int,
 		sample_file_path: str,
-		exclude_file_names: list
+		exclude_file_names: list,
+		input_file_format: str
 	) -> int:
 	"""
 	Create a learning record/entry in DB for this preprocessing action
@@ -92,7 +113,13 @@ def create_learning_entry(
 		sample_file_path=sample_file_path,
 		embedding_method=embedding_method,
 		strigent_topic=strigent_topic,
-		exclude_contracts=exclude_filename_string
+		ngram=ngram,
+		ngram_mixed=ngram_mixed,
+		multiple_paragraphs=multiple_paragraphs,
+		sample_count=sample_count,
+		exclude_contracts=exclude_filename_string,
+		input_format=input_file_format,
+
 	)
 
 def main(
@@ -105,6 +132,9 @@ def main(
 		remove_stop_words: bool, 
 		do_stemming: bool,
 		strigent_topic: bool,
+		ngram: int,
+		multiple_paragraphs: bool,
+		ngram_mixed: bool,
 		training_id: int,
 		topic: str,
 		model: str,
@@ -142,7 +172,6 @@ def main(
 		preprocessing_start = datetime.datetime.strftime(
 			datetime.datetime.now(), "%Y-%m-%d %H:%M:%S")
 
-		#TODO: Empty training ingredients first!
 		for fp in file_paths:
 			skip_file = False
 			for efn in exclude_file_names:
@@ -160,37 +189,50 @@ def main(
 					tag_obtaining_method,
 					remove_stop_words,
 					do_stemming,
-					strigent_topic
+					strigent_topic,
+					ngram,
+					multiple_paragraphs,
+					ngram_mixed
 				)
 				try:
 					individual_file_preprocess_engine.bag_of_word_dict_transformer()
 				except Exception as e: 
 					logger.error(fp+"\n "+str(e))
+		
+		if not file_path:
+			sample_file_path, sample_count = merge_datasets(TRAINING_INGREDIENT_PATH, 'txt')
+			# merge datasets in middleware for referencing
+			_, _ = merge_datasets(
+				MIDDLE_INGREDIENT_PATH, 'txt', filename=sample_file_path)
 
-		sample_file_path = merge_datasets(TRAINING_INGREDIENT_PATH)
-		# merge datasets in middleware for referencing
-		_ = merge_datasets(
-			MIDDLE_INGREDIENT_PATH, filename=sample_file_path)
+			# merge datasets for word2vec
+			_, _ = merge_datasets(
+				WORD2VEC_INGREDIENT_PATH, 'data', filename=sample_file_path
+			)
+			preprocessing_end = datetime.datetime.strftime(
+				datetime.datetime.now(), "%Y-%m-%d %H:%M:%S")
 
-		preprocessing_end = datetime.datetime.strftime(
-			datetime.datetime.now(), "%Y-%m-%d %H:%M:%S")
-
-		new_row_id = create_learning_entry(
-			preprocessing_start,
-			preprocessing_end,
-			embedding_method,
-			tag_obtaining_method,
-			remove_stop_words,
-			do_stemming,
-			strigent_topic,
-			sample_file_path,
-			exclude_file_names
-		)
-
-		print(
-			"""New result entry ID is: \n %s \n 
-			Please use it in training""" % (new_row_id)
-		)
+			
+			new_row_id = create_learning_entry(
+				preprocessing_start,
+				preprocessing_end,
+				embedding_method,
+				tag_obtaining_method,
+				remove_stop_words,
+				do_stemming,
+				strigent_topic,
+				ngram,
+				ngram_mixed,
+				multiple_paragraphs,
+				sample_count,
+				sample_file_path,
+				exclude_file_names,
+				input_file_format
+			)
+			print(
+				"""New result entry ID is: \n %s \n 
+				Please use it in training""" % (new_row_id)
+			)
 
 	elif action == 'train-test':
 		train_classifier = ModelClassSelector(
@@ -257,22 +299,43 @@ if __name__ == '__main__':
 		"--remove-stop-words", 
 		help="Removing stop words or not", 
 		dest="remove_stop_words",
-		default=True,
-		type=bool
+		default='True',
+		# type=bool
 	)
 	parser.add_argument(
 		"--do-stemming", 
 		help="Do stemming or not", 
 		dest="do_stemming",
-		default=True,
-		type=bool
+		default='True',
+		# type=bool
 	)
 	parser.add_argument(
 		"--strigent-topic", 
 		help="Striggent topic search", 
 		dest="strigent_topic",
-		default=True,
-		type=bool
+		default='True',
+		# type=bool
+	)
+	parser.add_argument(
+		"--multiple-paragraphs", 
+		help="Option to combine multiple paragraphs as one clause or not", 
+		dest="multiple_paragraphs",
+		default='False',
+		# type=bool
+	)
+	parser.add_argument(
+		"--ngram", 
+		help="N-gram text tokenization", 
+		dest="ngram",
+		default=1,
+		# type=bool
+	)
+	parser.add_argument(
+		"--ngram-mix", 
+		help="Allow different ngram mixued in dataset or not", 
+		dest="ngram_mixed",
+		default='True',
+		# type=bool
 	)
 	parser.add_argument(
 		"--training-id", 
@@ -299,7 +362,8 @@ if __name__ == '__main__':
 			'svc': 'SVCClassifying',
 			'linear_svc': 'LinearSVCClassifying',
 			'nu_svc': 'NuSVCClassifying',
-			'gaussian_mixure': 'GaussianMixureClassifying'
+			'gaussian_mixure': 'GaussianMixureClassifying',
+			'word2vec_clustering': 'GoogleWord2VecTextClusterClassifying'
 		""", 
 		dest="model",
 		default="naive_bayes"
@@ -311,6 +375,7 @@ if __name__ == '__main__':
 		default=5
 	)
 	args = parser.parse_args()
+	
 
 	if args.action == 'preprocess':
 		print("""
@@ -321,6 +386,13 @@ if __name__ == '__main__':
 				No single file was passed \n
 				Batch processing all files under contract folder... \n
 			""")
+		"""
+		Clear all past preprocess output for every single files before merging
+		"""
+		import os
+		os.system('rm ~/sync/testfield/middleware_ingredients/Cont_*')
+		os.system('rm ~/sync/testfield/training_ingredients/Cont_*')
+		os.system('rm ~/sync/testfield/word2vec_ingredients/Cont_*')
 	else:
 		print("""
 			The action is chosen to train and test classifying models \n
@@ -338,9 +410,12 @@ if __name__ == '__main__':
 		args.input_file_format,
 		args.embedding_method,
 		args.tag_obtaining_method,
-		args.remove_stop_words,
-		args.do_stemming,
-		args.strigent_topic,
+		args.remove_stop_words == 'True',
+		args.do_stemming == 'True',
+		args.strigent_topic == 'True',
+		int(args.ngram),
+		args.multiple_paragraphs == 'True',
+		args.ngram_mixed == 'True',
 		args.training_id,
 		args.topic,
 		args.model,
