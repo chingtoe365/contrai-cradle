@@ -440,8 +440,7 @@ class XGBoostClassifying(MLAbstract):
 		# self._model = SklearnClassifier()
 		self._model = xgb.XGBRegressor(
 			# tree_method='gpu_hist', gpu_id=0,
-			objective="multi:softprob", random_state=42, num_class=class_num,
-			max_depth=2)
+			objective="multi:softprob", random_state=42, num_class=class_num)
 		# xgb_param = self._model.get_xgb_params()
 		# xgb_param['num_class'] = 61
 		# features, target = self._data_shuffle(train_data)
