@@ -468,8 +468,8 @@ class XGBoostClassifying(MLAbstract):
 			before = time.time()
 			self._train(X_train, y_train, class_num)
 			after = time.time()
-			import pdb; pdb.set_trace()  # breakpoint 3d6ed4d7 //
 			print("One XGBoost model trained with time in {} seconds".format(str(after - before)))
+			print("testing accruracy: {}".format(str(self._accuracy_test)))
 			self._test(X_train, y_train, 'train')
 			self._test(X_test, y_test, 'test')
 			accuracy_train_sum += self._accuracy_train
@@ -477,7 +477,6 @@ class XGBoostClassifying(MLAbstract):
 
 		self._accuracy_train = accuracy_train_sum / self._k
 		self._accuracy_test = accuracy_test_sum / self._k
-		import pdb; pdb.set_trace()  # breakpoint a24ec29b //
 
 
 class GaussianMixureClassifying(MLAbstract):
