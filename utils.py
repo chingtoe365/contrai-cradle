@@ -44,12 +44,19 @@ def update_dict_by_accumulate(d1, d2):
 	values = []
 	# [d1[k]+d2[k] for k in keys]
 	for key in keys:
+		new_val = 0
 		if key not in d1:
 			values.append(d2[key])
 		elif key not in d2:
 			values.append(d1[key])
 		else:
-			values.append(d1[key]+d2[key])
+			if '_min' in key:
+				new_val = min(d1[key], d2[key])
+			elif '_max' in key:
+				new_val = max(d1[key], d2[key])
+			else:
+				new_val = d1[key]+d2[key]
+			values.append(new_val)
 	return dict(zip(keys, values))
 
 

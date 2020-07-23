@@ -16,10 +16,16 @@ __doc__ = """
 
 def crp(train_data):
 	"""
-	:param xxx:
+	:param train_data: a list of documents with N word types
 	:type: 
 	:rtype: 
 	"""
 	# dictionaries for parameters storage
 	phis = {}
+
+
+    # initialization
+    
+    # crp table param update
+    # clustering 
 	

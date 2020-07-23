@@ -32,11 +32,17 @@ from bs4 import BeautifulSoup
 from typing import Callable, Dict, List
 from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer
+from nltk.chunk import *
+from nltk import Tree
+from nlp_tools.chunkers import ntc
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 from utils import clean_string, update_dict_by_accumulate
+from analytics.sentence_tree_analytics import SentenceTreeFeatureScanner
+
 from word_embedding import *
 from tagging import *
+from config.constants import EXAGERATE_COEF
 import logging
 from event_logger import logger
 
@@ -44,6 +50,7 @@ ps = PorterStemmer()
 TRAINING_INGREDIENT_PATH = 'training_ingredients/'
 MIDDLE_INGREDIENT_PATH = 'middleware_ingredients/'
 WORD2VEC_INGREDIENT_PATH = 'word2vec_ingredients/'
+POS_IMAGE_FOLDER = 'results/pos/'
 
 class PreprocessingAbstract():
 	"""
@@ -51,7 +58,8 @@ class PreprocessingAbstract():
 	"""
 	def __init__(self, file_path, embedding_method, tag_obtaining_method,
 			remove_stop_words: bool, do_stemming: bool, strigent_topic: bool,
-			ngram: int, multiple_paragraphs: bool, ngram_mixed:bool):
+			ngram: list, multiple_paragraphs: bool, ngram_mixed:bool,
+			ngram_literated: bool, pos: list, semantic_analysis: bool):
 		self._file_path = file_path
 		self._contract_doc = self._load_file(self._file_path)
 		self._remove_stop_words = remove_stop_words
@@ -62,7 +70,10 @@ class PreprocessingAbstract():
 		self._strigent_topic = strigent_topic
 		self._ngram = ngram
 		self._multiple_paragraphs = multiple_paragraphs
-		self._ngram_mixed = ngram_mixed
+		# self._ngram_mixed = ngram_mixed
+		self._ngram_literated = ngram_literated
+		self._pos = pos
+		self._semantic_analysis = semantic_analysis
 
 	@abc.abstractmethod
 	def _load_file(self, file_path):
@@ -194,6 +205,117 @@ class PreprocessingAbstract():
 			re.search(r'^signed by', paragraph) or \
 			re.search(r'^service block statement of work', paragraph)
 
+
+	def _pos_tag_check(self, sentense, pos):
+		"""
+		part-of-speech tagging checking
+		"""
+		output = []
+		tagged = nltk.pos_tag(sentense)
+		for t in tagged:
+			for p in pos:
+				if t[1].startswith(p):
+					output.append(t[0])
+					break
+		return output
+
+	def _normality_check_with_pos_tag(self, sentense):
+		"""
+		Normality check for sentence
+		Assuming each sentence should have DT?JJ*
+		"""
+		# grammar = ('''
+		# 	NP: {<DT>?<JJ>*<NN>} # NP
+		# 	''')
+		# grammar = ('''
+		# 	VP: {<DT>?<JJ>*<NN>} # VP
+		# 	''')
+		# tagged = nltk.pos_tag(sentense)
+		# chunkParser =  nltk.RegexpParser(grammar)
+		# tree = chunkParser.parse(tagged)
+		# if len(self._pos_tag_check(sentense, 'V')) == 0:
+		# 	print(sentense)
+		return len(self._pos_tag_check(sentense, 'V')) > 0
+		# for subtree in tree.subtrees():
+		# 	print(subtree)
+		# f = open(
+		# 	os.path.join(
+		# 		POS_IMAGE_FOLDER,
+		# 		'sample.jpeg'
+		# 	),
+		# 	'wb'
+		# )
+
+	def _trunk_extraction(self, sentense):
+		"""
+		Squeeze/compress sentense
+		"""
+		# print(sentense)
+		# grammar = ('''
+		# 	NP: {<DT>?<VBG>*<JJ.>*<NN.>+}
+		# 	NP: {<NP>?<NP>?}
+		# 	VP: {<VBZ>?<CC>?<VBN>*}
+		# 	VP: {<VB>+<IN>*}
+		# 	CLAUSE: {<NP><VP>}
+		# 	''')
+		# grammar = ('''
+		# 	NP: {<DT|PP\$>?<JJ.>*<NN.>+}
+		# 		{<NNP>+}
+		# 	VP: {<VBZ>?<CC>?<VBN>*}
+		# 	VP: {<VB>+<IN>*}
+		# 	CLAUSE: {<NP><VP>}
+		# 	''')
+		grammar = r"""
+			NP: {<DT|P.+>?<VB.>?<JJ>?<NN.?>+}
+				{<NNP>+}
+				{<NP><CC><NP>}
+				{<NP><PP>}
+			PP: {<IN|TO>+<NP|JJ>}
+				{<RB><JJ>}
+				{<PP><CC>?<PP>}
+			VP: {<MD>?<RB.?>?<VB.?>+<NP|PP|CLAUSE>?}
+			CLAUSE: {<NP><VP>}
+			"""
+		# grammar = r"""
+		# 	NP: {<DT>?<VB.>?<JJ>?<NN.?>+}
+		# 	"""
+		# grammar = r"""
+		# 	S: {<NP><VP>}
+		# 	NP: {<DT|JJ|NN.*>+}          # Chunk sequences of DT, JJ, NN
+		# 	PP: {<IN><NP>}               # Chunk prepositions followed by NP
+		# 	VP: {<VB.*><NP|PP|CLAUSE>+$} # Chunk verbs and their arguments
+		# 	CLAUSE: {<NP><VP>}           # Chunk NP, VP
+		# """
+		# grammer = ('''
+		# 	# NP: {<DT|JJ|NN.*>+}          # Chunk sequences of DT, JJ, NN
+		# 	NP: {<DT>?<JJ>*<NN>+}
+		# 	#PP: {<IN><NP>}               # Chunk prepositions followed by NP
+		# 	#VP: {<VB.*><NP|PP|CLAUSE>+$} # Chunk verbs and their arguments
+		# 	#CLAUSE: {<NP><VP>}           # Chunk NP, VP
+		# ''')
+		tagged = nltk.pos_tag(sentense)
+		# print(tagged
+		# tree = chunkParser.parse(tagged)
+		# 1. use pre-trained trunk parser from in-built training dataset
+		tree = ntc.parse(tagged)
+		# 2. use regex parser to give some more depth of that
+		regexChunkParser =  nltk.RegexpParser(grammar, loop=10)
+		tree = regexChunkParser.parse(tree)
+		# tagged = ' '.join([t[0]+"/"+t[1] for t in tagged])
+		# tree = tagstr2tree(tagged)
+		# print(tree)
+
+		# import pdb; pdb.set_trace()  # breakpoint 996bba15 //
+		# def traversal(t):
+		# 	try:
+		# 		t.node
+		# 	except AttributeError:
+		# 		print t
+		# Tree.fromstring(str(tree)).pretty_print()
+		return tree
+		# for subtree in tree.subtrees():
+			# print(subtree)
+
 	def _caption_as_label(
 			self,
 			raw_text: str, 
@@ -229,7 +351,52 @@ class PreprocessingAbstract():
 	def _numerize_texts(self) -> List:
 		pass
 
-	def _word_scan(self, raw_word_vec, current_label, strigent) -> List:
+	def _n_gram_bootstrapper(self, list_of_words, semantic_tree) -> List:
+		if self._ngram_literated:
+			# split grams from within granular trunks in semantic tree
+			tagged = nltk.pos_tag(list_of_words)
+			semantic_tree = ntc.parse(tagged)
+			for subtree in semantic_tree:
+				# select only granular trunks with child elements of type tuple
+				# by applying only base parser
+				list_of_words_original_copy = [x[0] for x in subtree]
+				# for i in range(2,(self._ngram+1)):
+				for n in self._ngram:
+					n = int(n)
+					list_of_words_copy = list_of_words_original_copy.copy()
+					while len(list_of_words_copy) >= n:
+						list_of_words.append(
+							' '.join(list_of_words_copy[0:n])
+							# list_of_words_copy[0]+' '+list_of_words_copy[1]
+						)
+						list_of_words_copy = list_of_words_copy[1:]
+		else:
+			list_of_words_original_copy = list_of_words.copy()
+			# if self._ngram_mixed:
+				# if self._ngram > 1:
+					# if more ngram split is required
+			for n in self._ngram:
+				n = int(n)
+				list_of_words_copy = list_of_words_original_copy.copy()
+				while len(list_of_words_copy) >= n:
+					list_of_words.append(
+						' '.join(list_of_words_copy[0:n])
+						# list_of_words_copy[0]+' '+list_of_words_copy[1]
+					)
+					list_of_words_copy = list_of_words_copy[1:]
+			# else:
+			# 	list_of_words_copy = list_of_words_original_copy.copy()
+			# 	list_of_words = []
+			# 	while len(list_of_words_copy) >= self._ngram:
+			# 		list_of_words.append(
+			# 			' '.join(list_of_words_copy[0:self._ngram])
+			# 			# list_of_words_copy[0]+' '+list_of_words_copy[1]
+			# 		)
+			# 		list_of_words_copy = list_of_words_copy[1:]
+		return list_of_words
+
+	def _word_scan(self, raw_word_vec, current_label, strigent, 
+			semantic_tree_features=None) -> List:
 		list_of_words = []
 		# args_embedding_input = {}
 		# switches to remove stop words and do stemming
@@ -252,29 +419,10 @@ class PreprocessingAbstract():
 			for word in raw_word_vec:
 				list_of_words.append(word)
 
-		# if self._embedding_method != 'tfidf':
-		# 	args_embedding_input['list_of_words'] = list_of_words
-		list_of_words_original_copy = list_of_words.copy()
-		if self._ngram_mixed:
-			if self._ngram > 1:
-				# if more ngram split is required
-				for i in range(2,(self._ngram+1)):
-					list_of_words_copy = list_of_words_original_copy.copy()
-					while len(list_of_words_copy) >= i:
-						list_of_words.append(
-							' '.join(list_of_words_copy[0:i])
-							# list_of_words_copy[0]+' '+list_of_words_copy[1]
-						)
-						list_of_words_copy = list_of_words_copy[1:]
-		else:
-			list_of_words_copy = list_of_words_original_copy.copy()
-			list_of_words = []
-			while len(list_of_words_copy) >= self._ngram:
-				list_of_words.append(
-					' '.join(list_of_words_copy[0:i])
-					# list_of_words_copy[0]+' '+list_of_words_copy[1]
-				)
-				list_of_words_copy = list_of_words_copy[1:]
+		list_of_words = self._n_gram_bootstrapper(
+			list_of_words, semantic_tree_features
+		)
+
 		method = eval(self._embedding_method)
 		quantified_word_vec = self._word_embedding(
 			method, list_of_words
@@ -449,24 +597,7 @@ class RtfPreprocessing(PreprocessingAbstract):
 		full_path = os.path.join(os.getcwd(), file_path)
 		return open(full_path).read()
 
-	def _numerize_texts(self) -> List:
-		derived_observations = []
-		same_topic_BOW = []
-		# add a file to point topic to file
-		# only used as reference for research
-		topic_file_pointer = []
-		tfidf_calculation_corpus = []
-		tfidf_calculation_topic = []
-		current_label = ''
-		mock_caption_prefix = '1.'
-		preknown_caption = False
-		prematured_annex = False
-		end_of_legal_body = False
-		# current_index = 0
-		# prev_index = -1
-		# last_paragraph_fs = ''
-		# wired_document_switch_on = False
-		# text = re.sub(r'Article\s\d+}\n\\par\s', '1.', self._contract_doc)
+	def _full_text_pre_clean(self):
 		#--- remove format paragraph
 		text = re.sub(r'\\rtf1[\s,\S]*?\\par\s', '', self._contract_doc)
 		#--remove footer paragraph
@@ -485,6 +616,57 @@ class RtfPreprocessing(PreprocessingAbstract):
 		text = re.sub(r'\\picscalex[\s,\S]+?}', '', text)
 		# remove underscores
 		text = re.sub(r'__+', '', text)
+
+		return text
+
+	def _full_page_pre_clean(self, page):
+		page = page.lower()
+		#--- remove all decorative tags
+		page = re.sub(r'\\[a-z,A-Z,0-9,\-,\*,\',\~]*', '', page)
+		page = re.sub(r'\\~', '', page)
+		#--- remove cross refs 
+		page = re.sub(r'_ref\d+', '', page)
+		#--- remove table of content bookmarks
+		page = re.sub(r'_toc\d*', '', page)
+		#--- remove curly brackets
+		page = re.sub(r'[{,}]', '', page)
+		#--- destroy TOB - example: Cont_0014.rtf
+		# Otherwise sometimes >1 DEFINITIONS in the next step will be spotted
+		page = re.sub(r'toc[\S,\s]*pageref[\s,\S]*pageref', '', page)
+		# TODOs:
+		# - hyphen in title
+		# - space and line break in title
+		# skip definition
+		page = page.strip()
+		# remove space at front just for non-legal body detection
+		pattern = re.compile(
+			'^[\\s, \\n, \\t, '+self._paragraph_separator_sub+']+'
+		)
+		page = re.sub(pattern, '', page)	
+		return page	
+
+	def _numerize_texts(self) -> List:
+		derived_observations = []
+		same_topic_BOW = []
+		# add a file to point topic to file
+		# only used as reference for research
+		topic_file_pointer = []
+		tfidf_calculation_corpus = []
+		tfidf_calculation_topic = []
+		current_label = ''
+		mock_caption_prefix = '1.'
+		bullet_cached_text = ''
+		preknown_caption = False
+		prematured_annex = False
+		end_of_legal_body = False
+		is_in_bullet_list = False
+		# current_index = 0
+		# prev_index = -1
+		# last_paragraph_fs = ''
+		# wired_document_switch_on = False
+		# text = re.sub(r'Article\s\d+}\n\\par\s', '1.', self._contract_doc)
+		#--- remove format paragraph
+		text = self._full_text_pre_clean()
 		#--- split the text by special string into different pages
 		pages = text.split('\\pagebb')
 		#--- loop through every paragraph
@@ -492,30 +674,8 @@ class RtfPreprocessing(PreprocessingAbstract):
 		index_topic_map = {}
 		try:
 			for page in pages:
-				page = page.lower()
 				paragraph_count = 0
-				#--- remove all decorative tags
-				page = re.sub(r'\\[a-z,A-Z,0-9,\-,\*,\',\~]*', '', page)
-				page = re.sub(r'\\~', '', page)
-				#--- remove cross refs 
-				page = re.sub(r'_ref\d+', '', page)
-				#--- remove table of content bookmarks
-				page = re.sub(r'_toc\d*', '', page)
-				#--- remove curly brackets
-				page = re.sub(r'[{,}]', '', page)
-				#--- destroy TOB - example: Cont_0014.rtf
-				# Otherwise sometimes >1 DEFINITIONS in the next step will be spotted
-				page = re.sub(r'toc[\S,\s]*pageref[\s,\S]*pageref', '', page)
-				# TODOs:
-				# - hyphen in title
-				# - space and line break in title
-				# skip definition
-				page = page.strip()
-				# remove space at front just for non-legal body detection
-				pattern = re.compile(
-					'^[\\s, \\n, \\t, '+self._paragraph_separator_sub+']+'
-				)
-				page = re.sub(pattern, '', page)
+				page = self._full_page_pre_clean(page)
 				paragraphs = page.split(self._paragraph_separator_sub)
 				
 				for paragraph in paragraphs:
@@ -599,7 +759,7 @@ class RtfPreprocessing(PreprocessingAbstract):
 					# replace contractions
 					# eg. don't --> do n't
 					paragraph = self.replace_contractions(paragraph)
-
+					# print(">>>before title iden")
 					if (
 							normal_caption_search and \
 							not re.search(r'\\outlinelevel1', paragraph_raw)
@@ -612,6 +772,7 @@ class RtfPreprocessing(PreprocessingAbstract):
 						# speical treatment for excluding normal clause in definition
 						# as caption, eg. Cont_0357.rtf
 						# if caption index "1" appears twice then this is the abnormal one
+						# print("begin of caption check")
 						capcap = re.search(
 							r'(\d+)\.?\)?\[?\s*([\w, \s, \-, \,]+)', paragraph
 						)
@@ -619,7 +780,7 @@ class RtfPreprocessing(PreprocessingAbstract):
 						current_label = capcap.group(2).lower().strip()
 
 						current_label = re.sub(r'\s\s+', ' ', current_label)
-
+						# print("current label: {}".format(current_label))
 						# clear BOW in the case when _multiple_paragraphs is set True
 						if self._multiple_paragraphs and \
 							same_topic_BOW:
@@ -627,7 +788,7 @@ class RtfPreprocessing(PreprocessingAbstract):
 							# as it comes to a finish for previous topic
 							derived_observations.append(same_topic_BOW)
 							topic_file_pointer.append(
-								same_topic_BOW + \
+								[same_topic_BOW[0], same_topic_BOW[1]] + \
 									[
 										current_label,
 										os.path.basename(self._file_path),
@@ -638,11 +799,13 @@ class RtfPreprocessing(PreprocessingAbstract):
 							))
 							tfidf_calculation_topic.append(int(same_topic_BOW[1]))
 							same_topic_BOW = []
+							# print("clear bow done")
 						# concatenate broken label - this happen sometimes
 
 						# current_paragraph_section = caption_search.group(1)
 						# index_topic_map[]
-						# current_label = 'definition'				
+						# current_label = 'definition'		
+						# print("end of caption check")
 					else:
 						# no caption-like string is found
 						if self._definition_check(current_label) or \
@@ -656,26 +819,88 @@ class RtfPreprocessing(PreprocessingAbstract):
 
 							continue
 						else:
-							# if no special skipping needed then record it
-							# in bag of words
-							# remove bullet numbering & letters (roman)
-							paragraph = re.sub(r'^[\d, \.]*', '', paragraph)
-							paragraph = re.sub(r'[\(]*\w\)', '', paragraph)
 							# remove cross ref without links
 							paragraph = re.sub(r'[clause, section]\s\d+[\.\d+]*', '', paragraph)
 							# replace tilde with space which sometimes happen
 							# eg. Cont_0001.rtf section 6.3
 							paragraph = re.sub(r'~', ' ', paragraph)
+							# print(paragraph)
+
+							# process listing contents identification of colons
+							if paragraph[-1] == ':':
+								is_in_bullet_list = True
+								bullet_cached_text = paragraph
+								continue
+
+							if is_in_bullet_list:
+								# remove bullet numbering & letters (roman)	
+								paragraph = re.sub(r'^[\d, \.]+', '', paragraph)
+								paragraph = re.sub(r'\([\d, \w]+\)', '', paragraph)
+								paragraph = bullet_cached_text + paragraph
+								if paragraph[-1] == '.':
+									is_in_bullet_list = False
+
+							# if no special skipping needed then record it
+							# in bag of words
+							# remove bullet numbering & letters (roman)	
+							paragraph = re.sub(r'^[\d, \.]+', '', paragraph)
+							paragraph = re.sub(r'\([\d, \w]+\)', '', paragraph)
+							paragraph = re.sub(':', ' ', paragraph)
 							#TODO: tokenize that easy? white spaces?
 							raw_word_vec = self._tokenize(paragraph)
 							# normalize the tokens
 							raw_word_vec = self.normalize(raw_word_vec)
+
 							# remove tokens with only non-alphabetical chars
 							raw_word_vec = [w for w in raw_word_vec if re.search(r'\w', w)]
+							# print('<>>>>>>>>before pos ana')
+							# select specific type of words (noun/verb/etc.)
+							if self._pos:
+								raw_word_vec = self._pos_tag_check(raw_word_vec, self._pos)
 
-							paragraph_output = self._word_scan(
-								raw_word_vec, current_label, self._strigent_topic
-							)
+							# using POS tag to filter abnormal sentences
+							if not self._normality_check_with_pos_tag(raw_word_vec):
+								continue
+
+							paragraph_output = None
+							# print('<>>>>>>>>before semantic ana')
+							# semantic analysis
+							if self._semantic_analysis:
+								semantic_tree = self._trunk_extraction(raw_word_vec)
+								features = SentenceTreeFeatureScanner(semantic_tree).feature_extract_aggregate()
+								# print(features)
+								# print('-----------------------------------')
+								vectorized_words_and_label = self._word_scan(
+									raw_word_vec, current_label, self._strigent_topic, semantic_tree
+								)
+
+								if len(vectorized_words_and_label) == 0:
+									continue
+								# emphasize important words
+								if features['most_important_noun'] in vectorized_words_and_label[0].keys():
+									vectorized_words_and_label[0][features['most_important_noun']] *= EXAGERATE_COEF
+								if features['most_important_verb'] in vectorized_words_and_label[0].keys():
+									vectorized_words_and_label[0][features['most_important_verb']] *= EXAGERATE_COEF
+								if features['most_important_adjective'] in vectorized_words_and_label[0].keys():
+									vectorized_words_and_label[0][features['most_important_adjective']] *= EXAGERATE_COEF
+								if features['most_important_adverb'] in vectorized_words_and_label[0].keys():
+									vectorized_words_and_label[0][features['most_important_adverb']] *= EXAGERATE_COEF
+								del features["most_important_noun"]
+								del features["most_important_verb"]
+								del features["most_important_adjective"]
+								del features["most_important_adverb"]
+							
+								paragraph_output = (
+									{**vectorized_words_and_label[0], **features},
+									vectorized_words_and_label[1]
+								)
+								# print(paragraph)
+								# print("---------------ok------------")
+							else:
+								paragraph_output = self._word_scan(
+									raw_word_vec, current_label, self._strigent_topic
+								)
+
 							# if len(paragraph_output) == 0:
 							if len(paragraph_output) == 0:
 								continue
@@ -726,7 +951,13 @@ class RtfPreprocessing(PreprocessingAbstract):
 					])
 
 		except Exception as e:
-			logger.error(self._file_path+"\n Some error happen in preprocessing")
+			logger.error(
+				"{0}\n Some error happen in preprocessing \n{1}".format(
+					self._file_path,
+					e.args[0]
+				)
+			)
+
 
 		if len(derived_observations) == 0:
 			logger.error(self._file_path+"\n Empty")

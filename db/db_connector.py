@@ -146,6 +146,7 @@ class DBConnector():
 		return self._cursor.fetchall()
 		
 
+CONN = DBConnector()
 
 if __name__ == '__main__':
 	# kwargs = {'comment': "alright"}

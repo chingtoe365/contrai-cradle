@@ -13,10 +13,21 @@ import os
 import json
 import pickle
 import gensim
+import re
+import functools
+import time
 
 import numpy as np
+import pandas as pd
+import seaborn as sns
+import matplotlib.colors as mcolors
+import matplotlib.pyplot as plt
+import xgboost as xgb
+
 
 from typing import Dict
+from wordcloud import WordCloud, STOPWORDS
+from nltk.corpus import stopwords
 from sklearn.naive_bayes import MultinomialNB, \
 		GaussianNB, BernoulliNB
 from sklearn.linear_model import LinearRegression, \
@@ -28,16 +39,21 @@ from nltk.metrics.scores import (
 	precision, recall, f_measure, accuracy
 )
 from nltk.metrics import ConfusionMatrix
+from sklearn.model_selection import KFold
+
+from adjusted_model_lib.ldamulticore import LdaMulticore
 from preprocessing import TRAINING_INGREDIENT_PATH
-from db.db_connector import DBConnector
+from db.db_connector import CONN
 from db.config import EVL_TABLE
 from tagging import LABEL_VALUE_MAP
-from abstracts.abstractions import JLLearnModelAbstract 
+from abstracts.abstractions import JLLearnModelAbstract
+from impl.unsupervised_learning_impl import UnsupervisedLearningImpl
 from event_logger import logger
+from gensim.corpora import Dictionary
+from gensim import models
 
-MODEL_PATH = 'models/'
-RESULT_PATH = 'results/'
-conn = DBConnector()
+from config.constants import * 
+
 # W2V_MODEL = gensim.models.KeyedVectors.load_word2vec_format(
 # 	# '/home/vagrant/sync/testfield/google_word2vec/GoogleNews-vectors-negative300.bin.gz', 
 # 	# '/home/vagrant/sync/testfield/google_word2vec/word2vec_SLIM_10000',
@@ -57,7 +73,7 @@ class MLAbstract(object):
 	Machine learning base class 
 	"""
 	_model = None
-	def __init__(self, preprocessing_id, topic, k):
+	def __init__(self, preprocessing_id, topic, k, note, save_model):
 		"""
 		@data: observation of text and words with labels, data 
 		to derive training and testing dataset
@@ -67,22 +83,22 @@ class MLAbstract(object):
 		self._topic = topic
 		self._observation = self._load_data()
 		self._k = k
+		self._save_model_bool = save_model
 		self._train_sample_ratio = 1 - 1 / self._k
-		self._traindata, self._testdata = self._sampling(
-			self._observation, self._train_sample_ratio
-		)
+		self.cross_validation()
+		self._note = note
 		# self._preprocessing_start = prev_output.preprocessing_start
 		# self._preprocessing_end = prev_output.preprocessing_end
 		self._training_start = datetime.datetime.strftime(
 			datetime.datetime.now(), "%Y-%m-%d %H:%M:%S")
-		self._train()
+		
 		self._training_end = datetime.datetime.strftime(
 			datetime.datetime.now(), "%Y-%m-%d %H:%M:%S")
 		self._save_model()
 		self._testing_start = datetime.datetime.strftime(
 			datetime.datetime.now(), "%Y-%m-%d %H:%M:%S")
-		self._test(self._traindata, 'train')
-		self._test(self._testdata, 'test')
+
+		# self._test(self._observation, 'test')
 		# self._test(self._traindata)
 		# self._test(self._testdata)
 		self._testing_end = datetime.datetime.strftime(
@@ -99,7 +115,7 @@ class MLAbstract(object):
 		Load data for training and testing
 		"""
 		# get sample filename 
-		filenames = conn.get_sample_filename_by_id(
+		filenames = CONN.get_sample_filename_by_id(
 			self._preprocessing_id
 		)
 		filename = filenames[0][0]
@@ -139,7 +155,7 @@ class MLAbstract(object):
 		return train_data, test_data
 
 	@abc.abstractmethod
-	def _train(self):
+	def _train(self, trainset):
 		"""
 		Training function to be wrapped
 		"""
@@ -154,7 +170,7 @@ class MLAbstract(object):
 			predictions.append(self._model.classify(x[0]))
 		reference_set = set(reference)
 		prediction_set = set(predictions)
-		self._save_confusion_matrix(reference, predictions, sample_type)
+		# self._save_confusion_matrix(reference, predictions, sample_type)
 		if sample_type == 'train':
 			self._precision_train = precision(reference_set, prediction_set)
 			self._recall_train = recall(reference_set, prediction_set)
@@ -170,17 +186,24 @@ class MLAbstract(object):
 
 	def _save_model(self):
 		# save the model to disk
-
-		timestamp = datetime.datetime.strftime(
-			datetime.datetime.now(), "%Y%m%d%H%M%S")
-		filename = timestamp+'.sav'
-		self._model_filepath = os.path.join(
-			os.getcwd(),
-			MODEL_PATH,
-			filename
-		)
-		pickle.dump(self._model, open(self._model_filepath, 'wb'))
-		self._evaluation_id = conn.insert(
+		filename = ''
+		if self._save_model_bool:
+			self._traindata, self._testdata = self._sampling(
+				self._observation, self._train_sample_ratio
+			)
+			self._train(self._traindata)		
+			self._test(self._traindata, 'train')
+			self._test(self._testdata, 'test')
+			timestamp = datetime.datetime.strftime(
+				datetime.datetime.now(), "%Y%m%d%H%M%S")
+			filename = timestamp+'.sav'
+			self._model_filepath = os.path.join(
+				os.getcwd(),
+				MODEL_PATH,
+				filename
+			)
+			pickle.dump(self._model, open(self._model_filepath, 'wb'))
+		self._evaluation_id = CONN.insert(
 			EVL_TABLE,
 			preprocessing_id=self._preprocessing_id,
 			topic=self._topic,
@@ -212,7 +235,7 @@ class MLAbstract(object):
 		f.close()
 
 	def _save_result(self):
-		conn.update(
+		CONN.update(
 			EVL_TABLE,
 			self._evaluation_id,
 			training_precision=self._precision_train,
@@ -229,13 +252,43 @@ class MLAbstract(object):
 			testing_end=self._testing_end,
 			model_type=self._model_type,
 			k=self._k,
-			train_sample_size=len(self._traindata),
-			test_sample_size=len(self._testdata),
+			train_sample_size=round(len(self._observation)*self._train_sample_ratio),
+			test_sample_size=round(len(self._observation)*(1-self._train_sample_ratio)),
 			train_true_positives_num=self._train_true_positive_num,
 			test_true_positives_num=self._test_true_positive_num,
-			training_confusion_matrix_path=self._cm_path_train,
-			testing_confusion_matrix_path=self._cm_path_test
+			# training_confusion_matrix_path=self._cm_path_train,
+			# testing_confusion_matrix_path=self._cm_path_test,
+			note=self._note
 		)
+		# CONN.update(
+		# 	EVL_TABLE,
+		# 	self._evaluation_id
+		# )
+
+	def cross_validation(self):
+		data_piece_num = self._k
+		rest_sample = self._observation
+		evenly_split_data_corpus = []
+		while data_piece_num > 1:
+			train_sample_ratio = 1 - 1 / data_piece_num
+			rest_sample, unit_sample = self._sampling(rest_sample, train_sample_ratio)
+			evenly_split_data_corpus.append(unit_sample)
+			data_piece_num -= 1
+		evenly_split_data_corpus.append(rest_sample)
+		accuracy_train_sum = 0
+		accuracy_test_sum = 0
+		for i in range(data_piece_num):
+			train_set = evenly_split_data_corpus[0:i]+evenly_split_data_corpus[i+1:]
+			train_set = functools.reduce(lambda a,b:a+b, train_set)
+			test_set = evenly_split_data_corpus[i]
+			self._train(train_set)
+			self._test(train_set, 'train')
+			self._test(test_set, 'test')
+			accuracy_train_sum += self._accuracy_train
+			accuracy_test_sum += self._accuracy_test
+		self._accuracy_train = accuracy_train_sum / data_piece_num
+		self._accuracy_test = accuracy_test_sum / data_piece_num
+		# return evenly_split_data_corpus
 
 class SimpleNaiveBayesClassifying(MLAbstract):
 	"""
@@ -250,8 +303,8 @@ class SimpleNaiveBayesClassifying(MLAbstract):
 	_parameters = ""
 	_parametric = False
 
-	def _train(self):
-		self._model = nltk.NaiveBayesClassifier.train(self._traindata)
+	def _train(self, train_data):
+		self._model = nltk.NaiveBayesClassifier.train(train_data)
 		# filename = 'finalized_model.sav'
 		# pickle.dump(self._model, open(filename, 'wb'))
 
@@ -263,9 +316,9 @@ class MultinomialNBClassifying(MLAbstract):
 	_parameters = ""
 	_parametric = False
 
-	def _train(self):
+	def _train(self, train_data):
 		self._model  = SklearnClassifier(MultinomialNB())
-		self._model.train(self._traindata)
+		self._model.train(train_data)
 
 class GuassianNBClassifying(MLAbstract):
 	"""
@@ -275,9 +328,9 @@ class GuassianNBClassifying(MLAbstract):
 	_parameters = ""
 	_parametric = False
 
-	def _train(self):
+	def _train(self, train_data):
 		self._model  = SklearnClassifier(GaussianNB())
-		self._model.train(self._traindata)
+		self._model.train(train_data)
 
 class BernoulliNBClassifying(MLAbstract):
 	"""
@@ -287,9 +340,9 @@ class BernoulliNBClassifying(MLAbstract):
 	_parameters = ""
 	_parametric = False
 
-	def _train(self):
+	def _train(self, train_data):
 		self._model  = SklearnClassifier(BernoulliNB())
-		self._model.train(self._traindata)
+		self._model.train(train_data)
 
 class LogisticClassifying(MLAbstract):
 	"""
@@ -299,9 +352,9 @@ class LogisticClassifying(MLAbstract):
 	_parameters = ""
 	_parametric = False
 
-	def _train(self):
+	def _train(self, train_data):
 		self._model  = SklearnClassifier(LogisticRegression())
-		self._model.train(self._traindata)
+		self._model.train(train_data)
 
 class LinearRegressionClassifying(MLAbstract):
 	"""
@@ -311,9 +364,9 @@ class LinearRegressionClassifying(MLAbstract):
 	_parameters = ""
 	_parametric = False
 
-	def _train(self):
+	def _train(self, train_data):
 		self._model  = SklearnClassifier(LogisticRegression())
-		self._model.train(self._traindata)
+		self._model.train(train_data)
 
 class SGDCClassifying(MLAbstract):
 	"""
@@ -323,9 +376,9 @@ class SGDCClassifying(MLAbstract):
 	_parameters = ""
 	_parametric = False
 
-	def _train(self):
+	def _train(self, train_data):
 		self._model  = SklearnClassifier(SGDClassifier())
-		self._model.train(self._traindata)
+		self._model.train(train_data)
 
 class SVCClassifying(MLAbstract):
 	"""
@@ -335,9 +388,9 @@ class SVCClassifying(MLAbstract):
 	_parameters = ""
 	_parametric = False
 
-	def _train(self):
+	def _train(self, train_data):
 		self._model  = SklearnClassifier(SVC())
-		self._model.train(self._traindata)
+		self._model.train(train_data)
 
 class LinearSVCClassifying(MLAbstract):
 	"""
@@ -347,9 +400,9 @@ class LinearSVCClassifying(MLAbstract):
 	_parameters = ""
 	_parametric = False
 
-	def _train(self):
+	def _train(self, train_data):
 		self._model  = SklearnClassifier(LinearSVC())
-		self._model.train(self._traindata)
+		self._model.train(train_data)
 
 class NuSVCClassifying(MLAbstract):
 	"""
@@ -359,21 +412,85 @@ class NuSVCClassifying(MLAbstract):
 	_parameters = ""
 	_parametric = False
 
-	def _train(self):
+	def _train(self, train_data):
 		self._model  = SklearnClassifier(NuSVC())
-		self._model.train(self._traindata)
+		self._model.train(train_data)
+
+class XGBoostClassifying(MLAbstract):
+	"""
+	X Gradient Boosting
+	"""
+	_model_type = "Extreme Gradient Boosting"
+	_parameters = ""
+	_parametric = False
+
+	def _data_shuffle(self, original_formatted_data):
+		features = pd.DataFrame([x[0] for x in original_formatted_data])
+		target = np.array([x[1] for x in original_formatted_data])
+		target = np.array([np.where(np.array(sorted(set(target)))==y)[0][0] for y in target])
+		features.columns = np.array(range(0, features.shape[1])).astype(str)
+		features.replace(np.nan, 0, inplace=True)
+		features = features.apply(lambda x:x.astype(int))
+		return features, target
+
+	def _train(self, features, target, class_num):
+		# self._model = SklearnClassifier()
+		self._model = xgb.XGBRegressor(
+			# tree_method='gpu_hist', gpu_id=0,
+			objective="multi:softprob", random_state=42, num_class=class_num,
+			max_depth=2, nthread=-1)
+		# xgb_param = self._model.get_xgb_params()
+		# xgb_param['num_class'] = 61
+		# features, target = self._data_shuffle(train_data)
+		print("Training start...")
+		self._model.fit(features, target)
+	
+	def _test(self, features, target, sample_type):
+		if sample_type == 'train':
+			predictions = self._model.predict(features)
+			self._accuracy_train = accuracy(target, predictions)
+			self._train_true_positive_num = sum(np.array(target) != -1)
+		elif sample_type == 'test':
+			predictions = self._model.predict(features)
+			self._accuracy_test = accuracy(target, predictions)
+			self._test_true_positive_num = sum(np.array(target) != -1)
+
+	def cross_validation(self):
+		accuracy_train_sum = 0
+		accuracy_test_sum = 0
+		kfold = KFold(n_splits=5, shuffle=True, random_state=42)
+		scores = []
+		X, y = self._data_shuffle(self._observation)
+		class_num = len(set(y))
+		for train_index, test_index in kfold.split(X):
+			X_train, X_test = X.loc[train_index], X.loc[test_index]
+			y_train, y_test = y[train_index], y[test_index]
+			before = time.time()
+			self._train(X_train, y_train, class_num)
+			after = time.time()
+			import pdb; pdb.set_trace()  # breakpoint 3d6ed4d7 //
+			print("One XGBoost model trained with time in {} seconds".format(str(after - before)))
+			self._test(X_train, y_train, 'train')
+			self._test(X_test, y_test, 'test')
+			accuracy_train_sum += self._accuracy_train
+			accuracy_test_sum += self._accuracy_test
+
+		self._accuracy_train = accuracy_train_sum / self._k
+		self._accuracy_test = accuracy_test_sum / self._k
+		import pdb; pdb.set_trace()  # breakpoint a24ec29b //
+
 
 class GaussianMixureClassifying(MLAbstract):
 	"""
-	Naive Bayes with multinomial estimator
+	Gaussian mixure
 	"""
 	_model_type = "Gaussian Mixture"
 	_parameters = ""
 	_parametric = False
 
-	def _train(self):
+	def _train(self, train_data):
 		self._model  = SklearnClassifier(GaussianMixture())
-		self._model.train(self._traindata)
+		self._model.train(train_data)
 
 
 
@@ -396,7 +513,7 @@ class GoogleWord2VecTextClusterClassifying(MLAbstract):
 	_parameters = ""
 	_parametric = False
 
-	def _train(self):
+	def _train(self, train_data):
 		"""
 		Not using SKlearnClassifier interface in this model
 
@@ -405,7 +522,7 @@ class GoogleWord2VecTextClusterClassifying(MLAbstract):
 		
 		"""
 		self._model = TextClusterClassifying()
-		self._model.train(self._traindata)	
+		self._model.train(train_data)	
 		# estimator = []
 		# self._model = SklearnClassifier(estimator())
 		# self._model.train(self.)
@@ -422,8 +539,11 @@ ML_MODLE_MAP = {
 	'svc': 'SVCClassifying',
 	'linear_svc': 'LinearSVCClassifying',
 	'nu_svc': 'NuSVCClassifying',
+	'xgboost': 'XGBoostClassifying',
 	'gaussian_mixure': 'GaussianMixureClassifying',
-	'word2vec_clustering': 'GoogleWord2VecTextClusterClassifying'
+	'word2vec_clustering': 'GoogleWord2VecTextClusterClassifying',
+	'lda_clustering': 'LDAClustering',
+	'lsa_clustering': 'LSAClustering'
 }
 
 class ModelClassSelector():
@@ -532,3 +652,292 @@ class TextClusterClassifying(JLLearnModelAbstract):
 					clause_vector
 				)
 
+
+
+class LDAClustering(UnsupervisedLearningImpl):
+	model = 'LDA_Clustering'
+	num_topics = NUM_TOPICS
+	images_folder = 'results/lda_clustering'
+	def __init__(self, preprocessing_id, topic, k):
+		super().__init__(preprocessing_id, topic, k)
+		# self._preprocessing_id = preprocessing_id
+		# self._topic = topic
+		self._observation = self._load_data()
+		# self._k = k
+		self.train()
+		self.performance()
+
+	def train(self):
+		bow_corpus, id2word, raw_corpus, \
+			raw_corpus_single_gram, tfidf_corpus = self._bow_formatter()
+		self.corpus = raw_corpus_single_gram
+		# self.training_corpus = bow_corpus if self.
+		if TRAINING_INPUT_TYPE == 'tfidf':
+			self.training_corpus = tfidf_corpus 
+		elif TRAINING_INPUT_TYPE == 'bow':
+			self.training_corpus = bow_corpus
+		else:
+			self.training_corpus = bow_corpus
+		self.model = LdaMulticore(
+			corpus=self.training_corpus,
+			num_topics=NUM_TOPICS,
+			id2word=id2word,
+			passes=2,
+			workers=2
+		)
+
+	def performance(self):
+		csv_file_name = 'dominant_topic_'+TRAINING_INPUT_TYPE+'.csv'
+		csv_file_path = os.path.join(
+			os.getcwd(),
+			self.images_folder,
+			csv_file_name
+		)
+		print(
+			self.model.show_topics(
+				num_topics=self.num_topics,
+				num_words=20
+			)
+		)
+		self.df_topic_sents_keywords = self.format_topics_sentences()
+		# Format
+		df_dominant_topic = self.df_topic_sents_keywords.reset_index()
+		df_dominant_topic.columns = ['Document_No', 'Dominant_Topic', 'Topic_Perc_Contrib', 'Keywords', 'Text']
+		df_dominant_topic.to_csv(csv_file_path)
+		print(
+			df_dominant_topic.head(10)
+		)
+		self.document_word_count()
+		self.topic_word_count()
+		self.word_cloud()
+
+	def document_word_count(self):
+		image_name = 'word_count_'+TRAINING_INPUT_TYPE+'.jpeg'
+		image_file_path = os.path.join(
+			os.getcwd(),
+			self.images_folder,
+			image_name
+		)
+		self.df_dominant_topic = self.df_topic_sents_keywords.reset_index()
+		self.df_dominant_topic.columns = ['Document_No', 'Dominant_Topic', 'Topic_Perc_Contrib', 'Keywords', 'Text']
+		self.df_dominant_topic.head(10)
+		doc_lens = [len(d) for d in self.df_dominant_topic.Text]
+		# Plot
+		plt.figure(figsize=(16,7), dpi=160)
+		plt.hist(doc_lens, bins = 1000, color='navy')
+		plt.text(750, 100, "Mean   : " + str(round(np.mean(doc_lens))))
+		plt.text(750,  90, "Median : " + str(round(np.median(doc_lens))))
+		plt.text(750,  80, "Stdev   : " + str(round(np.std(doc_lens))))
+		plt.text(750,  70, "1%ile    : " + str(round(np.quantile(doc_lens, q=0.01))))
+		plt.text(750,  60, "99%ile  : " + str(round(np.quantile(doc_lens, q=0.99))))
+
+		plt.gca().set(xlim=(0, 1000), ylabel='Number of Documents', xlabel='Document Word Count')
+		plt.tick_params(size=16)
+		plt.xticks(np.linspace(0,1000,9))
+		plt.title('Distribution of Document Word Counts', fontdict=dict(size=22))
+		plt.show()
+		f = open(image_file_path, 'wb')
+		plt.savefig(
+			image_file_path
+		)
+
+	def topic_word_count(self):
+		image_name = 'topic_word_count_'+TRAINING_INPUT_TYPE+'.jpeg'
+		image_file_path = os.path.join(
+			os.getcwd(),
+			self.images_folder,
+			image_name
+		)
+		cols = [color for name, color in mcolors.XKCD_COLORS.items()]  # more colors: 'mcolors.XKCD_COLORS'
+
+		# fig, axes = plt.subplots(2,2,figsize=(16,14), dpi=160, sharex=True, sharey=True)
+		fig, axes = plt.subplots(5, 12, figsize=(120,50), sharex=True, sharey=True)
+
+
+		for i, ax in enumerate(axes.flatten()):
+			try:
+				df_dominant_topic_sub = self.df_dominant_topic.loc[self.df_dominant_topic.Dominant_Topic == i, :]
+			except Exception as e:
+				continue	
+			doc_lens = [len(d) for d in df_dominant_topic_sub.Text]
+			ax.hist(doc_lens, bins = BIN_NUMBER, color=cols[i])
+			ax.tick_params(axis='y', labelcolor=cols[i], color=cols[i])
+			sns.kdeplot(doc_lens, color="black", shade=False, ax=ax.twinx())
+			ax.set(xlim=(0, BIN_NUMBER), xlabel='Document Word Count')
+			ax.set_ylabel('Number of Documents', color=cols[i])
+			ax.set_title('Topic: '+str(i), fontdict=dict(size=16, color=cols[i]))
+		
+
+		fig.tight_layout()
+		fig.subplots_adjust(top=0.90)
+		plt.xticks(np.linspace(0,BIN_NUMBER,9))
+		fig.suptitle('Distribution of Document Word Counts by Dominant Topic', fontsize=22)
+		plt.show()
+		f = open(image_file_path, 'wb')
+		plt.savefig(
+			image_file_path
+		)
+
+	def word_cloud(self):
+		# 1. Wordcloud of Top N words in each topic
+		# from matplotlib import pyplot as plt
+		# import matplotlib.colors as mcolors
+		image_name = 'cloud_word_'+TRAINING_INPUT_TYPE+'.jpeg'
+		image_file_path = os.path.join(
+			os.getcwd(),
+			self.images_folder,
+			image_name
+		)
+		cols = [color for name, color in mcolors.XKCD_COLORS.items()]  # more colors: 'mcolors.TABLEAU_COLORS'
+		stop_words = set(stopwords.words("english"))
+		cloud = WordCloud(stopwords=stop_words,
+						background_color='white',
+						width=1200,
+						height=500,
+						max_words=10,
+						colormap='tab10',
+						color_func=lambda *args, **kwargs: cols[i],
+						prefer_horizontal=1.0)
+
+		topics = self.model.show_topics(formatted=False)
+
+		# fig, axes = plt.subplots(2, 2, figsize=(10,10), sharex=True, sharey=True)
+		fig, axes = plt.subplots(5, 12, figsize=(120,50), sharex=True, sharey=True)
+
+		for i, ax in enumerate(axes.flatten()):
+			try:
+				topic_words = dict(topics[i][1])
+			except Exception as e:
+				continue
+			fig.add_subplot(ax)
+			cloud.generate_from_frequencies(topic_words, max_font_size=300)
+			plt.gca().imshow(cloud)
+			plt.gca().set_title('Topic ' + str(i), fontdict=dict(size=16))
+			plt.gca().axis('off')
+
+
+		plt.subplots_adjust(wspace=0, hspace=0)
+		plt.axis('off')
+		plt.margins(x=0, y=0)
+		plt.tight_layout()
+		plt.show()
+		f = open(image_file_path, 'wb')
+		plt.savefig(
+			image_file_path
+		)
+
+
+class LSAClustering(UnsupervisedLearningImpl):
+	model = 'LSA_Clustering'
+	num_topics = NUM_TOPICS
+	result_folder = 'results/lsa_clustering'
+
+	def __init__(self, preprocessing_id, topic, k):
+		super().__init__(preprocessing_id, topic, k)
+		# self._preprocessing_id = preprocessing_id
+		# self._topic = topic
+		self._observation = self._load_data()
+		# self._k = k
+		self.train()
+		self.performance()
+
+
+	def train(self):
+		"""
+		Input  : clean document, number of topics and number of words associated with each topic
+		Purpose: create LSA model using gensim
+		Output : return LSA model
+		"""
+		bow_corpus, id2word, raw_corpus, \
+			raw_corpus_single_gram, tfidf_corpus = self._bow_formatter()
+		self.corpus = raw_corpus_single_gram
+		self.dictionary = id2word
+		# self.training_corpus = bow_corpus if self.
+		if TRAINING_INPUT_TYPE == 'tfidf':
+			self.training_corpus = tfidf_corpus 
+		elif TRAINING_INPUT_TYPE == 'bow':
+			self.training_corpus = bow_corpus
+		else:
+			self.training_corpus = bow_corpus
+		# generate LSA model
+		self.model = gensim.models.LsiModel(
+			self.training_corpus, num_topics=self.num_topics, id2word=id2word
+		)  # train model
+		# print(self.model.print_topics(num_topics=self.num_topics, num_words=10))
+		# return lsamodel
+
+	def performance(self):
+		csv_file_name = 'topic_'+TRAINING_INPUT_TYPE+'.csv'
+		csv_file_path = os.path.join(
+			os.getcwd(),
+			self.result_folder,
+			csv_file_name
+		)
+		print(
+			self.model.show_topics(
+				num_topics=self.num_topics,
+				num_words=20
+			)
+		)
+		self.df_topic_sents_keywords = self.format_topics_sentences()
+		# Format
+		df_dominant_topic = self.df_topic_sents_keywords.reset_index()
+		df_dominant_topic.columns = ['Document_No', 'Dominant_Topic', 'Topic_Perc_Contrib', 'Keywords', 'Text']
+		df_dominant_topic.to_csv(csv_file_path)
+		print(
+			df_dominant_topic.head(10)
+		)
+		self.coherence_measure()
+		# self.document_word_count()
+		# self.topic_word_count()
+		# self.word_cloud()
+
+
+	def coherence_measure(self):
+		"""
+			Input   : dictionary : Gensim dictionary
+				corpus : Gensim corpus
+				texts : List of input texts
+				stop : Max num of topics
+			purpose : Compute c_v coherence for various number of topics
+			Output  : model_list : List of LSA topic models
+				coherence_values : Coherence values corresponding to the LDA model with respective number of topics
+		"""
+		start, stop, step = 2,61,1
+		coherence_values = []
+		model_list = []
+		for num_topics in range(start, stop, step):
+			# generate LSA model
+			model = gensim.models.LsiModel(
+				self.training_corpus, 
+				num_topics=num_topics,
+				id2word = self.dictionary
+			)  # train model
+			model_list.append(model)
+			coherencemodel = gensim.models.CoherenceModel(
+				model=model, corpus=self.training_corpus, 
+				dictionary=self.dictionary, coherence='u_mass'
+			)
+			coherence_values.append(coherencemodel.get_coherence())
+
+		# dictionary,doc_term_matrix=prepare_corpus(doc_clean)
+		# model_list, coherence_values = compute_coherence_values(dictionary, doc_term_matrix,doc_clean,
+				# stop, start, step)
+		# Show graph
+		x = range(start, stop, step)
+		plt.plot(x, coherence_values)
+		plt.xlabel("Number of Topics")
+		plt.ylabel("Coherence score")
+		plt.legend(("coherence_values"), loc='best')
+		# plt.show()
+		image_name = 'coherence_'+TRAINING_INPUT_TYPE+'.jpeg'
+		image_file_path = os.path.join(
+			os.getcwd(),
+			self.result_folder,
+			image_name
+		)
+		f = open(image_file_path, 'wb')
+		plt.savefig(
+			image_file_path
+		)
+		# return model_list, coherence_values

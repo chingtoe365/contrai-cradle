@@ -16,3 +16,9 @@ gensim==3.8.1
 pyemd==0.5.1
 contractions==0.0.24
 inflect==4.1.0
+seaborn==0.10.0
+wordcloud==1.6.0
+jupyterlab
+graphviz
+pydot
+xgboost

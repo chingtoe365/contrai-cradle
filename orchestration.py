@@ -84,9 +84,12 @@ def create_learning_entry(
 		remove_stop_words: str,
 		do_stemming: str,
 		strigent_topic: str,
-		ngram: int,
+		ngram: str,
 		ngram_mixed: str,
-		multiple_paragraphs: str,
+		ngram_literated: str,
+		semantic_analysis: str,
+		multiple_paragraphs: str,		
+		pos: str,
 		sample_count: int,
 		sample_file_path: str,
 		exclude_file_names: list,
@@ -104,6 +107,9 @@ def create_learning_entry(
 	if len(exclude_file_names) > 0:
 		exclude_filename_string = ','.join(exclude_file_names)
 
+	if pos:
+		pos = ','.join(pos)
+		
 	return conn.insert(
 		PPC_TABLE,
 		stop_word_removed=remove_stop_words,
@@ -113,13 +119,16 @@ def create_learning_entry(
 		sample_file_path=sample_file_path,
 		embedding_method=embedding_method,
 		strigent_topic=strigent_topic,
-		ngram=ngram,
+		# ngram=ngram,
+		ngram_list=ngram,
 		ngram_mixed=ngram_mixed,
+		ngram_literated=ngram_literated,
+		semantic_analysis=semantic_analysis,
 		multiple_paragraphs=multiple_paragraphs,
+		pos=pos,
 		sample_count=sample_count,
 		exclude_contracts=exclude_filename_string,
-		input_format=input_file_format,
-
+		input_format=input_file_format
 	)
 
 def main(
@@ -132,13 +141,19 @@ def main(
 		remove_stop_words: bool, 
 		do_stemming: bool,
 		strigent_topic: bool,
-		ngram: int,
+		ngram: list,
 		multiple_paragraphs: bool,
 		ngram_mixed: bool,
+		ngram_literated: bool,
+		semantic_analysis: bool,
+		merge_only: bool,
+		pos: list,
 		training_id: int,
 		topic: str,
 		model: str,
-		cv_fold_num: int
+		note: str,
+		cv_fold_num: int,
+		save_model:bool
 	):
 	"""
 	Main initializer of complete NLP study
@@ -166,38 +181,45 @@ def main(
 					Only .rtf and .docx are supported.
 				""")
 		else:
-			file_paths = [os.path.join(contracts_path, p) for p in file_paths]
+			if not merge_only:
+				file_paths = [os.path.join(contracts_path, p) for p in file_paths]
+			else:
+				file_paths = []
 
 		preprocess_cls = PREPROCESS_CLS_MAP[input_file_format]
 		preprocessing_start = datetime.datetime.strftime(
 			datetime.datetime.now(), "%Y-%m-%d %H:%M:%S")
 
-		for fp in file_paths:
-			skip_file = False
-			for efn in exclude_file_names:
-				# skip selected contracts that passed through
-				if efn in fp:
-					skip_file = True
-					break
-			if skip_file:
-				continue
-			if fp.endswith(input_file_format):
-				# only process specified file formats
-				individual_file_preprocess_engine = preprocess_cls(
-					fp, 
-					embedding_method,
-					tag_obtaining_method,
-					remove_stop_words,
-					do_stemming,
-					strigent_topic,
-					ngram,
-					multiple_paragraphs,
-					ngram_mixed
-				)
-				try:
-					individual_file_preprocess_engine.bag_of_word_dict_transformer()
-				except Exception as e: 
-					logger.error(fp+"\n "+str(e))
+		if not merge_only:
+			for fp in file_paths:
+				skip_file = False
+				for efn in exclude_file_names:
+					# skip selected contracts that passed through
+					if efn in fp:
+						skip_file = True
+						break
+				if skip_file:
+					continue
+				if fp.endswith(input_file_format):
+					# only process specified file formats
+					individual_file_preprocess_engine = preprocess_cls(
+						fp, 
+						embedding_method,
+						tag_obtaining_method,
+						remove_stop_words,
+						do_stemming,
+						strigent_topic,
+						ngram,
+						multiple_paragraphs,
+						ngram_mixed,
+						ngram_literated,
+						pos,
+						semantic_analysis
+					)
+					try:
+						individual_file_preprocess_engine.bag_of_word_dict_transformer()
+					except Exception as e: 
+						logger.error(fp+"\n "+str(e))
 		
 		if not file_path:
 			sample_file_path, sample_count = merge_datasets(TRAINING_INGREDIENT_PATH, 'txt')
@@ -221,14 +243,21 @@ def main(
 				remove_stop_words,
 				do_stemming,
 				strigent_topic,
-				ngram,
+				','.join(ngram),
 				ngram_mixed,
+				ngram_literated,
+				semantic_analysis,
 				multiple_paragraphs,
+				pos,
 				sample_count,
 				sample_file_path,
 				exclude_file_names,
 				input_file_format
 			)
+			# make a tmp file and store it
+			tmpfile = open('/home/vagrant/sync/testfield/tmp.txt', 'w')
+			tmpfile.write(str(new_row_id))
+			tmpfile.close()
 			print(
 				"""New result entry ID is: \n %s \n 
 				Please use it in training""" % (new_row_id)
@@ -240,7 +269,9 @@ def main(
 		train_classifier(
 			training_id,
 			topic,
-			cv_fold_num
+			cv_fold_num,
+			note,
+			save_model
 		)
 	else:
 		raise Exception("""
@@ -323,19 +354,62 @@ if __name__ == '__main__':
 		default='False',
 		# type=bool
 	)
+	# parser.add_argument(
+	# 	"--ngram", 
+	# 	help="N-gram text tokenization", 
+	# 	dest="ngram",
+	# 	default=1,
+	# 	# type=bool
+	# )
 	parser.add_argument(
-		"--ngram", 
-		help="N-gram text tokenization", 
-		dest="ngram",
-		default=1,
-		# type=bool
-	)
-	parser.add_argument(
-		"--ngram-mix", 
+		"--ngram-mixed", 
 		help="Allow different ngram mixued in dataset or not", 
 		dest="ngram_mixed",
 		default='True',
 		# type=bool
+	)
+	parser.add_argument(
+		"--ngram", 
+		help="N-gram text tokenization", 
+		dest="ngram",
+		metavar='N', 
+		nargs='+',
+		default=[1]
+		# type=bool
+	)
+	parser.add_argument(
+		"--ngram-literate", 
+		help="Apply filter to leave only literate ngrams", 
+		dest="ngram_literated",
+		default='False',
+		# type=bool
+	)
+	parser.add_argument(
+		"--pos-select",
+		help="Part of speech trunk selection",
+		dest="pos",
+		metavar='N', 
+		nargs='+',
+		# default=None
+	)
+	parser.add_argument(
+		"--semantic-analysis",
+		help="To include semantic analysis or not in training input preparation",
+		dest="semantic_analysis",
+		default='False'
+	)
+	# parser.add_argument(
+	# 	"--clear-batch",
+	# 	help="Clear batch or not",
+	# 	dest="clear_batch",
+	# 	default=True,
+	# 	type=bool
+	# )
+	parser.add_argument(
+		"--merge-only",
+		help="Opt to merge batch only",
+		dest="merge_only",
+		default='False'
 	)
 	parser.add_argument(
 		"--training-id", 
@@ -369,10 +443,23 @@ if __name__ == '__main__':
 		default="naive_bayes"
 	)
 	parser.add_argument(
+		"--note", 
+		help="Add note for train test", 
+		dest="note",
+		type=str,
+		default=None
+	)
+	parser.add_argument(
 		"--cv-fold-number", 
 		help="Cross validation fold number", 
 		dest="cv_fold_num",
 		default=5
+	)
+	parser.add_argument(
+		"--save-model", 
+		help="Save model or not", 
+		dest="save_model",
+		default="False"
 	)
 	args = parser.parse_args()
 	
@@ -389,10 +476,11 @@ if __name__ == '__main__':
 		"""
 		Clear all past preprocess output for every single files before merging
 		"""
-		import os
-		os.system('rm ~/sync/testfield/middleware_ingredients/Cont_*')
-		os.system('rm ~/sync/testfield/training_ingredients/Cont_*')
-		os.system('rm ~/sync/testfield/word2vec_ingredients/Cont_*')
+		if args.merge_only == 'False' and args.file_path is None:
+			import os
+			os.system('rm ~/sync/testfield/middleware_ingredients/Cont_*')
+			os.system('rm ~/sync/testfield/training_ingredients/Cont_*')
+			# os.system('rm ~/sync/testfield/word2vec_ingredients/Cont_*')
 	else:
 		print("""
 			The action is chosen to train and test classifying models \n
@@ -413,11 +501,17 @@ if __name__ == '__main__':
 		args.remove_stop_words == 'True',
 		args.do_stemming == 'True',
 		args.strigent_topic == 'True',
-		int(args.ngram),
+		args.ngram,
 		args.multiple_paragraphs == 'True',
 		args.ngram_mixed == 'True',
+		args.ngram_literated == 'True',
+		args.semantic_analysis == 'True',
+		args.merge_only == 'True',
+		args.pos,
 		args.training_id,
 		args.topic,
 		args.model,
-		args.cv_fold_num
+		args.note,
+		args.cv_fold_num,
+		args.save_model == 'True'
 	)
