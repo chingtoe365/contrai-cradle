@@ -64,7 +64,10 @@ from config.constants import *
 # )
 
 W2V_MODEL = gensim.models.Word2Vec.load(
-	'/home/vagrant/sync/testfield/models/word2vec/legal_w2v.model'
+	os.path.join(
+		os.getcwd(),
+		'models/word2vec/legal_w2v.model'
+	)
 ).wv
 
 
@@ -438,7 +441,7 @@ class XGBoostClassifying(MLAbstract):
 		self._model = xgb.XGBRegressor(
 			# tree_method='gpu_hist', gpu_id=0,
 			objective="multi:softprob", random_state=42, num_class=class_num,
-			max_depth=2, nthread=-1)
+			max_depth=2)
 		# xgb_param = self._model.get_xgb_params()
 		# xgb_param['num_class'] = 61
 		# features, target = self._data_shuffle(train_data)
@@ -469,9 +472,9 @@ class XGBoostClassifying(MLAbstract):
 			self._train(X_train, y_train, class_num)
 			after = time.time()
 			print("One XGBoost model trained with time in {} seconds".format(str(after - before)))
-			print("testing accruracy: {}".format(str(self._accuracy_test)))
 			self._test(X_train, y_train, 'train')
 			self._test(X_test, y_test, 'test')
+			print("testing accruracy: {}".format(str(self._accuracy_test)))
 			accuracy_train_sum += self._accuracy_train
 			accuracy_test_sum += self._accuracy_test
 
