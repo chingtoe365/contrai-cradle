@@ -440,7 +440,7 @@ class XGBoostClassifying(MLAbstract):
 		# self._model = SklearnClassifier()
 		self._model = xgb.XGBRegressor(
 			# tree_method='gpu_hist', gpu_id=0,
-			objective="multi:softprob", random_state=42, num_class=class_num)
+			objective="multi:softmax", random_state=42, num_class=class_num)
 		# xgb_param = self._model.get_xgb_params()
 		# xgb_param['num_class'] = 61
 		# features, target = self._data_shuffle(train_data)
@@ -452,10 +452,16 @@ class XGBoostClassifying(MLAbstract):
 			predictions = self._model.predict(features)
 			self._accuracy_train = accuracy(target, predictions)
 			self._train_true_positive_num = sum(np.array(target) != -1)
+			self._precision_train = 0
+			self._recall_train = 0
+			self._f_measure_train = 0
 		elif sample_type == 'test':
 			predictions = self._model.predict(features)
 			self._accuracy_test = accuracy(target, predictions)
 			self._test_true_positive_num = sum(np.array(target) != -1)
+			self._precision_test = 0
+			self._recall_test = 0
+			self._f_measure_test = 0
 
 	def cross_validation(self):
 		accuracy_train_sum = 0
