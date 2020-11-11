@@ -12,23 +12,33 @@ import datetime
 import os
 import logging
 import pickle
+import multiprocessing as mp
+from multiprocessing import Pool, TimeoutError
+
+
+from queue import Queue
+from threading import Thread, Event
+
 
 from os import listdir
 
-from preprocessing import DocxPreprocessing, RtfPreprocessing
-from learning import ModelClassSelector
-from db.db_connector import DBConnector
-from db.config import PPC_TABLE
-from event_logger import logger
+from contrai_cradle.preprocessing import DocxPreprocessing, RtfPreprocessing, CsvPreprocessing
+from contrai_cradle.learning import ModelClassSelector
+from contrai_cradle.db.db_connector import DBConnector
+from contrai_cradle.db.config import PPC_TABLE
+from contrai_cradle.event_logger import logger
+from itertools import product
 
 PREPROCESS_CLS_MAP = {
 	'rtf': RtfPreprocessing,
-	'docx': DocxPreprocessing
+	'docx': DocxPreprocessing,
+	'csv': CsvPreprocessing
 }
 TRAINING_INGREDIENT_PATH = 'training_ingredients/'
 MIDDLE_INGREDIENT_PATH = 'middleware_ingredients/'
 WORD2VEC_INGREDIENT_PATH = 'word2vec_ingredients/'
 CONTRACT_PATH = 'contracts/'
+
 
 def merge_datasets(path_to_merge, suffix, filename=None) -> str:
 	# get list of json txt files
@@ -131,6 +141,51 @@ def create_learning_entry(
 		input_format=input_file_format
 	)
 
+def preprocessing_worker(*args):
+	# while True:
+	# item = job_Q.get()
+	# print(args)
+	filepath, \
+	pp_class, \
+	embedding_method, \
+	tag_obtaining_method, \
+	remove_stop_words, \
+	do_stemming, \
+	strigent_topic, \
+	ngram, \
+	multiple_paragraphs, \
+	ngram_mixed, \
+	ngram_literated, \
+	pos, \
+	semantic_analysis, \
+	debug = args[0]
+	# print(filepath)
+	print(f'Working on {filepath}')
+	# only process specified file formats
+	individual_file_preprocess_engine = pp_class(
+		filepath, 
+		embedding_method,
+		tag_obtaining_method,
+		remove_stop_words,
+		do_stemming,
+		strigent_topic,
+		ngram,
+		multiple_paragraphs,
+		ngram_mixed,
+		ngram_literated,
+		pos,
+		semantic_analysis,
+		debug
+	)
+	try:
+		individual_file_preprocess_engine.bag_of_word_dict_transformer()
+	except Exception as e: 
+		logger.error(fp+"\n "+str(e))
+		# job_Q.task_done()
+	# job_Q.task_done()
+	print(f'Finished {filepath}')
+		# if threadStopFlag:
+
 def main(
 		action: str,
 		file_path: str,
@@ -153,7 +208,10 @@ def main(
 		model: str,
 		note: str,
 		cv_fold_num: int,
-		save_model:bool
+		save_model:bool,
+		param_c:float,
+		param_max_iter:int,
+		debug: bool
 	):
 	"""
 	Main initializer of complete NLP study
@@ -164,6 +222,7 @@ def main(
 			CONTRACT_PATH
 		)
 		file_paths = listdir(contracts_path)
+		filtered_file_paths = []
 		if file_path:
 			file_paths = [
 				os.path.join(
@@ -175,6 +234,8 @@ def main(
 				input_file_format = 'rtf'
 			elif file_path.endswith('.docx'):
 				input_file_format = 'docx'
+			elif file_path.endswith('.csv'):
+				input_file_format = 'csv'
 			else:
 				raise Exception("""
 					Input contract file type not supported.
@@ -191,36 +252,124 @@ def main(
 			datetime.datetime.now(), "%Y-%m-%d %H:%M:%S")
 
 		if not merge_only:
+			job_Q = Queue()
+			num_threads = os.cpu_count()
+			# threadStopFlag = 0
+			# def preprocessing_worker():
+			# 	while True:
+			# 		item = job_Q.get()
+			# 		print(f'Working on {item}')
+			# 		# only process specified file formats
+			# 		individual_file_preprocess_engine = preprocess_cls(
+			# 			item, 
+			# 			embedding_method,
+			# 			tag_obtaining_method,
+			# 			remove_stop_words,
+			# 			do_stemming,
+			# 			strigent_topic,
+			# 			ngram,
+			# 			multiple_paragraphs,
+			# 			ngram_mixed,
+			# 			ngram_literated,
+			# 			pos,
+			# 			semantic_analysis,
+			# 			debug
+			# 		)
+			# 		try:
+			# 			individual_file_preprocess_engine.bag_of_word_dict_transformer()
+			# 		except Exception as e: 
+			# 			logger.error(fp+"\n "+str(e))
+			# 			job_Q.task_done()
+			# 		job_Q.task_done()
+			# 		print(f'Finished {item}')
+			# 		# if threadStopFlag:
+			# 		# 	break
+
+
 			for fp in file_paths:
 				skip_file = False
 				for efn in exclude_file_names:
 					# skip selected contracts that passed through
-					if efn in fp:
+					if efn in item:
 						skip_file = True
 						break
 				if skip_file:
 					continue
 				if fp.endswith(input_file_format):
-					# only process specified file formats
-					individual_file_preprocess_engine = preprocess_cls(
-						fp, 
-						embedding_method,
-						tag_obtaining_method,
-						remove_stop_words,
-						do_stemming,
-						strigent_topic,
-						ngram,
-						multiple_paragraphs,
-						ngram_mixed,
-						ngram_literated,
-						pos,
-						semantic_analysis
-					)
-					try:
-						individual_file_preprocess_engine.bag_of_word_dict_transformer()
-					except Exception as e: 
-						logger.error(fp+"\n "+str(e))
-		
+					job_Q.put(fp)
+					filtered_file_paths.append(fp)
+			print('All task requests sent\n', end='')
+			
+			#### MULTI PROCESSING #####
+			threads = []
+			procs = []
+			# for i in range(num_threads):
+			# 	worker = Thread(target=preprocessing_worker)
+			# 	worker.setDaemon(True)
+			# 	threads.append(worker)
+
+			# for thread in threads:
+			# 	thread.start()
+
+			# # for thread in threads:
+			# # 	thread.join()
+
+			# job_Q.join()
+			args_combi = [        
+				[x for x in p] for p in product(*[
+					filtered_file_paths,
+					[preprocess_cls, ],
+					[embedding_method,],
+					[tag_obtaining_method,],
+					[remove_stop_words,],
+					[do_stemming,],
+					[strigent_topic,],
+					[ngram,],
+					[multiple_paragraphs,],
+					[ngram_mixed,],
+					[ngram_literated,],
+					[pos,],
+					[semantic_analysis,],
+					[debug,],
+				])
+			]
+			# for i in range(num_threads):
+			# 	proc = mp.Process(target=preprocessing_worker, args=args_combi)
+			# 	procs.append(proc)
+			# 	proc.start()
+
+			# for proc in procs:
+			# 	proc.join()
+			with Pool(processes=num_threads) as pool:
+				# multiple_results = [pool.apply_async(os.getpid, ()) for i in range(4)]
+				pool.map(preprocessing_worker, args_combi)
+
+			# threadStopFlag = 1
+			# turn-on the worker thread
+			# Thread(target=preprocessing_worker, daemon=True).start()
+			
+			print('All tasks completed')
+			# for fp in filtered_file_paths:
+			# 	individual_file_preprocess_engine = preprocess_cls(
+			# 		fp, 
+			# 		embedding_method,
+			# 		tag_obtaining_method,
+			# 		remove_stop_words,
+			# 		do_stemming,
+			# 		strigent_topic,
+			# 		ngram,
+			# 		multiple_paragraphs,
+			# 		ngram_mixed,
+			# 		ngram_literated,
+			# 		pos,
+			# 		semantic_analysis,
+			# 		debug
+			# 	)
+			# 	try:
+			# 		individual_file_preprocess_engine.bag_of_word_dict_transformer()
+			# 	except Exception as e: 
+			# 		logger.error(fp+"\n "+str(e))
+
 		if not file_path:
 			sample_file_path, sample_count = merge_datasets(TRAINING_INGREDIENT_PATH, 'txt')
 			# merge datasets in middleware for referencing
@@ -255,7 +404,13 @@ def main(
 				input_file_format
 			)
 			# make a tmp file and store it
-			tmpfile = open('/home/vagrant/sync/testfield/tmp.txt', 'w')
+			tmpfile = open(
+				os.path.join(
+					os.getcwd(),
+					'tmp.txt'
+				), 
+				'w'
+			)
 			tmpfile.write(str(new_row_id))
 			tmpfile.close()
 			print(
@@ -264,14 +419,18 @@ def main(
 			)
 
 	elif action == 'train-test':
+		print('param C is {}'.format(param_c))
 		train_classifier = ModelClassSelector(
 			).convert_string_to_classifier(model)
 		train_classifier(
 			training_id,
 			topic,
 			cv_fold_num,
+			embedding_method,
 			note,
-			save_model
+			save_model,
+			param_c,
+			param_max_iter
 		)
 	else:
 		raise Exception("""
@@ -374,7 +533,7 @@ if __name__ == '__main__':
 		dest="ngram",
 		metavar='N', 
 		nargs='+',
-		default=[1]
+		default=['1']
 		# type=bool
 	)
 	parser.add_argument(
@@ -436,6 +595,7 @@ if __name__ == '__main__':
 			'svc': 'SVCClassifying',
 			'linear_svc': 'LinearSVCClassifying',
 			'nu_svc': 'NuSVCClassifying',
+			'xgboost': 'XGBoostClassifying',
 			'gaussian_mixure': 'GaussianMixureClassifying',
 			'word2vec_clustering': 'GoogleWord2VecTextClusterClassifying'
 		""", 
@@ -456,14 +616,30 @@ if __name__ == '__main__':
 		default=5
 	)
 	parser.add_argument(
+		"--C", 
+		help="Regularization parameteres in SVM and logistic regression", 
+		dest="param_c",
+		default=1
+	)
+	parser.add_argument(
+		"--max-iter", 
+		help="Regularization parameteres in SVM and logistic regression", 
+		dest="param_max_iter",
+		default=1000
+	)
+	parser.add_argument(
 		"--save-model", 
 		help="Save model or not", 
 		dest="save_model",
 		default="False"
 	)
+	parser.add_argument(
+		"--debug", 
+		help="Activate debug mode", 
+		dest="debug",
+		default="False"
+	)
 	args = parser.parse_args()
-	
-
 	if args.action == 'preprocess':
 		print("""
 			The action is chosen to preprocess contracts \n
@@ -478,8 +654,9 @@ if __name__ == '__main__':
 		"""
 		if args.merge_only == 'False' and args.file_path is None:
 			import os
-			os.system('rm ~/sync/testfield/middleware_ingredients/Cont_*')
-			os.system('rm ~/sync/testfield/training_ingredients/Cont_*')
+			dir_path = os.getcwd()
+			os.system('rm {}/middleware_ingredients/Cont_*'.format(dir_path))
+			os.system('rm {}/training_ingredients/Cont_*'.format(dir_path))
 			# os.system('rm ~/sync/testfield/word2vec_ingredients/Cont_*')
 	else:
 		print("""
@@ -513,5 +690,8 @@ if __name__ == '__main__':
 		args.model,
 		args.note,
 		args.cv_fold_num,
-		args.save_model == 'True'
+		args.save_model == 'True',
+		args.param_c,
+		args.param_max_iter,
+		args.debug == 'True'
 	)
