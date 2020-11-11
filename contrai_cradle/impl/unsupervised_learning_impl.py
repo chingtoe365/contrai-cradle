@@ -8,14 +8,14 @@ import datetime
 import re
 import pandas as pd
 
-from abstracts.abstractions import JLUnsupervisedLearningAbstract
-
-from preprocessing import TRAINING_INGREDIENT_PATH
-from db.db_connector import CONN
-from config.constants import TRAINING_INPUT_TYPE
-
 from gensim.corpora import Dictionary
 from gensim import models
+
+from contrai_cradle.abstracts.abstractions import JLUnsupervisedLearningAbstract
+from contrai_cradle.preprocessing import TRAINING_INGREDIENT_PATH
+from contrai_cradle.db.db_connector import CONN
+from contrai_cradle.config.constants import TRAINING_INPUT_TYPE
+
 
 MODEL_PATH = 'models/'
 

@@ -52,19 +52,18 @@ from nltk.metrics import ConfusionMatrix
 from sklearn.model_selection import KFold
 from tensorflow.keras.preprocessing.text import Tokenizer
 from tensorflow.keras.preprocessing.sequence import pad_sequences
-
-from adjusted_model_lib.ldamulticore import LdaMulticore
-from preprocessing import TRAINING_INGREDIENT_PATH
-from db.db_connector import CONN
-from db.config import EVL_TABLE
-from tagging import LABEL_VALUE_MAP
-from abstracts.abstractions import JLLearnModelAbstract
-from impl.unsupervised_learning_impl import UnsupervisedLearningImpl
-from event_logger import logger
 from gensim.corpora import Dictionary
 from gensim import models
 
-from config.constants import * 
+from contrai_cradle.adjusted_model_lib.ldamulticore import LdaMulticore
+from contrai_cradle.preprocessing import TRAINING_INGREDIENT_PATH
+from contrai_cradle.db.db_connector import CONN
+from contrai_cradle.db.config import EVL_TABLE
+from contrai_cradle.tagging import LABEL_VALUE_MAP
+from contrai_cradle.abstracts.abstractions import JLLearnModelAbstract
+from contrai_cradle.impl.unsupervised_learning_impl import UnsupervisedLearningImpl
+from contrai_cradle.event_logger import logger
+from contrai_cradle.config.constants import * 
 
 # W2V_MODEL = gensim.models.KeyedVectors.load_word2vec_format(
 #   # '/home/vagrant/sync/testfield/google_word2vec/GoogleNews-vectors-negative300.bin.gz', 

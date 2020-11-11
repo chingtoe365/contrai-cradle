@@ -3,7 +3,7 @@ __doc__ = """
 	All abstracts goes into here
 """
 import abc
-from abstracts.meta.LearningMeta import LearningModelMeta
+from contrai_cradle.abstracts.meta.LearningMeta import LearningModelMeta
 
 class JLLearnModelAbstract():
 	def __init__(self):

@@ -12,7 +12,7 @@ from typing import List, Dict, Tuple
 from difflib import SequenceMatcher
 from collections import OrderedDict
 
-from utils import overlapping_word_count
+from contrai_cradle.utils import overlapping_word_count
 
 def similar(a, b):
 	return SequenceMatcher(None, a, b).ratio()

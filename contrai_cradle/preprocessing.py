@@ -28,6 +28,7 @@ import pickle
 import contractions
 import inflect
 import pandas as pd
+import logging
 from bs4 import BeautifulSoup
 
 
@@ -36,17 +37,17 @@ from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer
 from nltk.chunk import *
 from nltk import Tree
-from nlp_tools.chunkers import ntc
+
 from sklearn.feature_extraction.text import TfidfVectorizer
 
-from utils import clean_string, update_dict_by_accumulate
-from analytics.sentence_tree_analytics import SentenceTreeFeatureScanner
+from contrai_cradle.nlp_tools.chunkers import ntc
+from contrai_cradle.utils import clean_string, update_dict_by_accumulate
+from contrai_cradle.analytics.sentence_tree_analytics import SentenceTreeFeatureScanner
 
-from word_embedding import *
-from tagging import *
-from config.constants import EXAGERATE_COEF
-import logging
-from event_logger import logger
+from contrai_cradle.word_embedding import *
+from contrai_cradle.tagging import *
+from contrai_cradle.config.constants import EXAGERATE_COEF
+from contrai_cradle.event_logger import logger
 
 ps = PorterStemmer()
 stop_words = set(stopwords.words("english"))

@@ -9,7 +9,8 @@ __doc__ = """
 
 import nltk
 from typing import List, Dict
-from event_logger import logger
+
+from contrai_cradle.event_logger import logger
 
 def count_occurence(list_of_words: List) -> Dict:
 	"""

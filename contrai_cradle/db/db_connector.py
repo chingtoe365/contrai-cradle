@@ -8,7 +8,7 @@ __doc__ = """
 """
 
 import psycopg2
-from .config import *
+from contrai_cradle.db.config import *
 
 from typing import Dict
 # from ..learning import MLAbstract
