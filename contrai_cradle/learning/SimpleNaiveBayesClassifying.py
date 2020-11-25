@@ -1,5 +1,5 @@
 import nltk
-from contrai_cradle.learning import MLAbstract
+from contrai_cradle.abstracts.MLAbstract import MLAbstract
 
 class SimpleNaiveBayesClassifying(MLAbstract):
     """

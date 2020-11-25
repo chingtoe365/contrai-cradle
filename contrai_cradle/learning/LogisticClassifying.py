@@ -1,5 +1,5 @@
 from nltk.classify.scikitlearn import SklearnClassifier
-from contrai_cradle.learning import MLAbstract
+from contrai_cradle.abstracts.MLAbstract import MLAbstract
 
 class LogisticClassifying(MLAbstract):
     """

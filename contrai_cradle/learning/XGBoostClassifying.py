@@ -10,7 +10,7 @@ from nltk.metrics.scores import (
 from sklearn.model_selection import KFold
 
 
-from contrai_cradle.learning import MLAbstract
+from contrai_cradle.abstracts.MLAbstract import MLAbstract
 
 class XGBoostClassifying(MLAbstract):
     """

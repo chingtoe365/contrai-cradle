@@ -10,7 +10,7 @@ from tensorflow.keras.preprocessing.text import Tokenizer
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 
 from contrai_cradle.db.db_connector import CONN
-from contrai_cradle.learning import MLAbstract
+from contrai_cradle.abstracts.MLAbstract import MLAbstract
 
 
 class LSTMClassifying(MLAbstract):

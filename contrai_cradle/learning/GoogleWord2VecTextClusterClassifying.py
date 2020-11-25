@@ -1,5 +1,5 @@
 from contrai_cradle.learning import TextClusterClassifying
-from contrai_cradle.learning import MLAbstract
+from contrai_cradle.abstracts.MLAbstract import MLAbstract
 
 class GoogleWord2VecTextClusterClassifying(MLAbstract):
     """
