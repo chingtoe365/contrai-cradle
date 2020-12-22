@@ -2,6 +2,7 @@ import os
 import re
 import pandas as pd
 
+from typing import Dict
 from contrai_cradle.preprocessing import PreprocessingAbstract
 
 
@@ -20,7 +21,7 @@ class CsvPreprocessing(PreprocessingAbstract):
         text = re.sub(r'&.*?;', '', text)
         return text
 
-    def _numerize_texts(self) -> List:
+    def _numerize_texts(self) -> Dict:
         derived_observations = []
         clauses = self._contract_doc['clause']
         tags = self._contract_doc['tag']

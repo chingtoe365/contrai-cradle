@@ -22,7 +22,9 @@ from threading import Thread, Event
 
 from os import listdir
 
-from contrai_cradle.preprocessing import DocxPreprocessing, RtfPreprocessing, CsvPreprocessing
+# from contrai_cradle.preprocessing import DocxPreprocessing, RtfPreprocessing, CsvPreprocessing
+# import contrai_cradle.preprocess as cp
+from contrai_cradle.preprocess import *
 from contrai_cradle.learning import ModelClassSelector
 from contrai_cradle.db.db_connector import DBConnector
 from contrai_cradle.db.config import PPC_TABLE
@@ -30,14 +32,15 @@ from contrai_cradle.event_logger import logger
 from itertools import product
 
 PREPROCESS_CLS_MAP = {
-	'rtf': RtfPreprocessing,
-	'docx': DocxPreprocessing,
-	'csv': CsvPreprocessing
+	'rtf': 'RtfPreprocessing',
+	'docx': 'DocPreprocessing',
+	'csv': 'CsvPreprocessing'
 }
-TRAINING_INGREDIENT_PATH = 'training_ingredients/'
-MIDDLE_INGREDIENT_PATH = 'middleware_ingredients/'
-WORD2VEC_INGREDIENT_PATH = 'word2vec_ingredients/'
-CONTRACT_PATH = 'contracts/'
+
+TRAINING_INGREDIENT_PATH = 'contrai_cradle/training_ingredients/'
+MIDDLE_INGREDIENT_PATH = 'contrai_cradle/middleware_ingredients/'
+WORD2VEC_INGREDIENT_PATH = 'contrai_cradle/word2vec_ingredients/'
+CONTRACT_PATH = 'contrai_cradle/contracts/'
 
 
 def merge_datasets(path_to_merge, suffix, filename=None) -> str:
@@ -180,7 +183,7 @@ def preprocessing_worker(*args):
 	try:
 		individual_file_preprocess_engine.bag_of_word_dict_transformer()
 	except Exception as e: 
-		logger.error(fp+"\n "+str(e))
+		logger.error(filepath+"\n "+str(e))
 		# job_Q.task_done()
 	# job_Q.task_done()
 	print(f'Finished {filepath}')
@@ -247,7 +250,7 @@ def main(
 			else:
 				file_paths = []
 
-		preprocess_cls = PREPROCESS_CLS_MAP[input_file_format]
+		preprocess_cls = eval(PREPROCESS_CLS_MAP[input_file_format])
 		preprocessing_start = datetime.datetime.strftime(
 			datetime.datetime.now(), "%Y-%m-%d %H:%M:%S")
 
