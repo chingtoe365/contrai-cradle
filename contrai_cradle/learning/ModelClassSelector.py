@@ -1,5 +1,22 @@
 from contrai_cradle.abstracts.MLAbstract import MLAbstract
 
+from .BernoulliNBClassifying import BernoulliNBClassifying
+from .GaussianMixureClassifying import GaussianMixureClassifying
+from .GoogleWord2VecTextClusterClassifying import GoogleWord2VecTextClusterClassifying
+from .GuassianNBClassifying import GuassianNBClassifying
+from .LDAClustering import LDAClustering
+from .LinearRegressionClassifying import LinearRegressionClassifying
+from .LinearSVCClassifying import LinearSVCClassifying
+from .LogisticClassifying import LogisticClassifying
+from .LSAClustering import LSAClustering
+from .LSTMClassifying import LSTMClassifying
+from .MultinomialNBClassifying import MultinomialNBClassifying
+from .NuSVCClassifying import NuSVCClassifying
+from .SGDCClassifying import SGDCClassifying
+from .SimpleNaiveBayesClassifying import SimpleNaiveBayesClassifying
+from .SVCClassifying import SVCClassifying
+from .TextClusterClassifying import TextClusterClassifying
+from .XGBoostClassifying import XGBoostClassifying
 
 ML_MODLE_MAP = {
     'linear_regression': 'LinearRegressionClassifying',

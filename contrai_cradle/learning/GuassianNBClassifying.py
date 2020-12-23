@@ -1,4 +1,5 @@
 from nltk.classify.scikitlearn import SklearnClassifier
+from sklearn.naive_bayes import GaussianNB
 from contrai_cradle.abstracts.MLAbstract import MLAbstract
 
 class GuassianNBClassifying(MLAbstract):

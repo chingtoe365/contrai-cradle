@@ -2,6 +2,7 @@ import gensim
 import os
 import matplotlib.pyplot as plt
 
+from contrai_cradle.config.constants import NUM_TOPICS
 from contrai_cradle.impl.unsupervised_learning_impl import UnsupervisedLearningImpl
 
 class LSAClustering(UnsupervisedLearningImpl):

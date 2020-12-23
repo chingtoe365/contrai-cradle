@@ -1,4 +1,5 @@
 from nltk.classify.scikitlearn import SklearnClassifier
+from sklearn.svm import SVC
 from contrai_cradle.abstracts.MLAbstract import MLAbstract
 
 class SVCClassifying(MLAbstract):

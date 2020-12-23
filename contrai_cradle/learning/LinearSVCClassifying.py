@@ -1,5 +1,7 @@
 from nltk.classify.scikitlearn import SklearnClassifier
+from sklearn.svm import LinearSVC
 from contrai_cradle.abstracts.MLAbstract import MLAbstract
+
 
 class LinearSVCClassifying(MLAbstract):
     """

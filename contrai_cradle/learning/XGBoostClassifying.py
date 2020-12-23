@@ -11,6 +11,7 @@ from sklearn.model_selection import KFold
 
 
 from contrai_cradle.abstracts.MLAbstract import MLAbstract
+from contrai_cradle.config.constants import TRAINING_INGREDIENT_PATH
 
 class XGBoostClassifying(MLAbstract):
     """

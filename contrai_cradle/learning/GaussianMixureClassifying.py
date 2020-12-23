@@ -1,4 +1,5 @@
 from nltk.classify.scikitlearn import SklearnClassifier
+from sklearn.mixture import GaussianMixture
 from contrai_cradle.abstracts.MLAbstract import MLAbstract
 
 class GaussianMixureClassifying(MLAbstract):

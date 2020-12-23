@@ -5,7 +5,7 @@ import numpy as np
 import seaborn as sns
 from wordcloud import WordCloud, STOPWORDS
 
-
+from contrai_cradle.config.constants import NUM_TOPICS
 from contrai_cradle.adjusted_model_lib.ldamulticore import LdaMulticore
 from contrai_cradle.impl.unsupervised_learning_impl import UnsupervisedLearningImpl
 
@@ -42,7 +42,7 @@ class LDAClustering(UnsupervisedLearningImpl):
         )
 
     def performance(self):
-        csv_file_name = 'dominant_topic_ ' +TRAINING_INPUT_TYP E +'.csv'
+        csv_file_name = 'dominant_topic_ ' +TRAINING_INPUT_TYPE +'.csv'
         csv_file_path = os.path.join(
             os.getcwd(),
             self.images_folder,
@@ -67,7 +67,7 @@ class LDAClustering(UnsupervisedLearningImpl):
         self.word_cloud()
 
     def document_word_count(self):
-        image_name = 'word_count_ ' +TRAINING_INPUT_TYP E +'.jpeg'
+        image_name = 'word_count_ ' +TRAINING_INPUT_TYPE +'.jpeg'
         image_file_path = os.path.join(
             os.getcwd(),
             self.images_folder,
@@ -97,7 +97,7 @@ class LDAClustering(UnsupervisedLearningImpl):
         )
 
     def topic_word_count(self):
-        image_name = 'topic_word_count_ ' +TRAINING_INPUT_TYP E +'.jpeg'
+        image_name = 'topic_word_count_ ' +TRAINING_INPUT_TYPE +'.jpeg'
         image_file_path = os.path.join(
             os.getcwd(),
             self.images_folder,
@@ -137,7 +137,7 @@ class LDAClustering(UnsupervisedLearningImpl):
         # 1. Wordcloud of Top N words in each topic
         # from matplotlib import pyplot as plt
         # import matplotlib.colors as mcolors
-        image_name = 'cloud_word_ ' +TRAINING_INPUT_TYP E +'.jpeg'
+        image_name = 'cloud_word_ ' +TRAINING_INPUT_TYPE +'.jpeg'
         image_file_path = os.path.join(
             os.getcwd(),
             self.images_folder,

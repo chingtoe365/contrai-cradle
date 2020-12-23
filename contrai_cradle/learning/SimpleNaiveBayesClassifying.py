@@ -1,4 +1,4 @@
-import nltk
+from nltk import NaiveBayesClassifier
 from contrai_cradle.abstracts.MLAbstract import MLAbstract
 
 class SimpleNaiveBayesClassifying(MLAbstract):
@@ -15,7 +15,7 @@ class SimpleNaiveBayesClassifying(MLAbstract):
     _parametric = False
 
     def _train(self, train_data):
-        self._model = nltk.NaiveBayesClassifier.train(train_data)
+        self._model = NaiveBayesClassifier.train(train_data)
         return self._model
         # filename = 'finalized_model.sav'
         # pickle.dump(self._model, open(filename, 'wb'))

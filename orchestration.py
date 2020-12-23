@@ -25,10 +25,13 @@ from os import listdir
 # from contrai_cradle.preprocessing import DocxPreprocessing, RtfPreprocessing, CsvPreprocessing
 # import contrai_cradle.preprocess as cp
 from contrai_cradle.preprocess import *
-from contrai_cradle.learning import ModelClassSelector
+from contrai_cradle.learning import *
 from contrai_cradle.db.db_connector import DBConnector
 from contrai_cradle.db.config import PPC_TABLE
 from contrai_cradle.event_logger import logger
+from contrai_cradle.config.constants import TRAINING_INGREDIENT_PATH, \
+MIDDLE_INGREDIENT_PATH, WORD2VEC_INGREDIENT_PATH, CONTRACT_PATH
+
 from itertools import product
 
 PREPROCESS_CLS_MAP = {
@@ -36,12 +39,6 @@ PREPROCESS_CLS_MAP = {
 	'docx': 'DocPreprocessing',
 	'csv': 'CsvPreprocessing'
 }
-
-TRAINING_INGREDIENT_PATH = 'contrai_cradle/training_ingredients/'
-MIDDLE_INGREDIENT_PATH = 'contrai_cradle/middleware_ingredients/'
-WORD2VEC_INGREDIENT_PATH = 'contrai_cradle/word2vec_ingredients/'
-CONTRACT_PATH = 'contrai_cradle/contracts/'
-
 
 def merge_datasets(path_to_merge, suffix, filename=None) -> str:
 	# get list of json txt files
