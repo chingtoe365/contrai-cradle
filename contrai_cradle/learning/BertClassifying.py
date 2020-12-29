@@ -58,8 +58,8 @@ class BertClassifying(MLAbstract):
         """
         # pass
         self._preprocessing_id = preprocessing_id
-        self._param_c = param_c
-        self._param_max_iter = param_max_iter
+        self._param_c = int(param_c)
+        self._param_max_iter = int(param_max_iter)
         self._load_data()
         self._import_bert_model_and_tokenizer()
         token_lists = self._tokenization()
