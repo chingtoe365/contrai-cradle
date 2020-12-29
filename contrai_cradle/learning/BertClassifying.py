@@ -57,7 +57,8 @@ class BertClassifying(LogisticClassifying):
         self._preprocessing_id = preprocessing_id
         self._param_c = int(param_c)
         self._param_max_iter = int(param_max_iter)
-
+        self._save_model_bool = save_model
+        
         ### MODEL SPECIFIC OPERATIONS ###
         self._load_data()
         self._import_bert_model_and_tokenizer()
