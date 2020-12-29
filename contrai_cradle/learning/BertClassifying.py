@@ -58,6 +58,8 @@ class BertClassifying(MLAbstract):
         """
         # pass
         self._preprocessing_id = preprocessing_id
+        self._param_c = param_c
+        self._param_max_iter = param_max_iter
         self._load_data()
         self._import_bert_model_and_tokenizer()
         token_lists = self._tokenization()
@@ -146,7 +148,10 @@ class BertClassifying(MLAbstract):
     #     )
 
     def _train_and_test(self):
-        lr_clf = LogisticRegression()
+        lr_clf = LogisticRegression(
+            C=self._param_c,
+            max_iter=self._param_max_iter
+        )
         lr_clf.fit(self._train_features, self._train_labels)
         lr_clf.score(self._test_features, self._test_labels)
 
