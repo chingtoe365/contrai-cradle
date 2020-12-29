@@ -17,6 +17,7 @@ from .SimpleNaiveBayesClassifying import SimpleNaiveBayesClassifying
 from .SVCClassifying import SVCClassifying
 from .TextClusterClassifying import TextClusterClassifying
 from .XGBoostClassifying import XGBoostClassifying
+from .BertClassifying import BertClassifying
 
 ML_MODLE_MAP = {
     'linear_regression': 'LinearRegressionClassifying',
@@ -31,6 +32,7 @@ ML_MODLE_MAP = {
     'nu_svc': 'NuSVCClassifying',
     'xgboost': 'XGBoostClassifying',
     'lstm': 'LSTMClassifying',
+    'bert': 'BertClassifying',
     'gaussian_mixure': 'GaussianMixureClassifying',
     'word2vec_clustering': 'GoogleWord2VecTextClusterClassifying',
     'lda_clustering': 'LDAClustering',
