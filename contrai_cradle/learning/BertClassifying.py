@@ -58,6 +58,9 @@ class BertClassifying(LogisticClassifying):
         self._param_c = int(param_c)
         self._param_max_iter = int(param_max_iter)
         self._save_model_bool = save_model
+        self._topic = topic
+        self._embedding_method = embedding_method
+        self._note = note
         
         ### MODEL SPECIFIC OPERATIONS ###
         self._load_data()
@@ -70,7 +73,6 @@ class BertClassifying(LogisticClassifying):
         self._observation = self._comply_input_format()
         ### MODEL SPECIFIC OPERATIONS ###
 
-        self._note = note
         self._training_start = datetime.datetime.strftime(
             datetime.datetime.now(), "%Y-%m-%d %H:%M:%S")
         self.cross_validation()
