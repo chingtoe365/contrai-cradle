@@ -162,7 +162,8 @@ class BertClassifying(LogisticClassifying):
             self._last_hidden_states = self._model(input_ids.long())
 
     def _comply_input_format(self):
-        features = self._last_hidden_states.to_dict(orient='records')
+        features = self._last_hidden_states[0][:,0,:]
+        features = features.to_dict(orient='records')
         labels = self._df[1]
         output = []
         for count in range(len(features)):
