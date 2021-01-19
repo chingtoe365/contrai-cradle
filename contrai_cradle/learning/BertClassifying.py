@@ -127,7 +127,7 @@ class BertClassifying(MLAbstract):
 
     def _tokenize_and_train(self):
         texts = self._df[0].tolist()
-        inputs = tokenizer(texts, return_tensors="pt", padding=True)
+        inputs = self._tokenizer(texts, return_tensors="pt", padding=True)
         labels = torch.tensor(self._df[1].tolist()).unsqueeze(0)
         outputs = self._model(**inputs, labels=labels)
         print("Model Loss")
