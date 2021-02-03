@@ -27,3 +27,5 @@ graphviz
 tensorflow
 torch
 transformers
+pytorch-ignite
+utils
