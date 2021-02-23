@@ -98,6 +98,7 @@ def create_learning_entry(
 		ngram_mixed: str,
 		ngram_literated: str,
 		semantic_analysis: str,
+		extract_sentence: str,
 		multiple_paragraphs: str,		
 		pos: str,
 		sample_count: int,
@@ -134,6 +135,7 @@ def create_learning_entry(
 		ngram_mixed=ngram_mixed,
 		ngram_literated=ngram_literated,
 		semantic_analysis=semantic_analysis,
+		extract_sentence=extract_sentence,
 		multiple_paragraphs=multiple_paragraphs,
 		pos=pos,
 		sample_count=sample_count,
@@ -333,7 +335,7 @@ def main(
 					[ngram_literated,],
 					[pos,],
 					[semantic_analysis,],
-					[extract_sentence,]
+					[extract_sentence,],
 					[debug,],
 				])
 			]
@@ -400,6 +402,7 @@ def main(
 				ngram_mixed,
 				ngram_literated,
 				semantic_analysis,
+				extract_sentence,
 				multiple_paragraphs,
 				pos,
 				sample_count,
