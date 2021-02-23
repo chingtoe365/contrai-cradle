@@ -5,8 +5,10 @@ import numpy as np
 import pandas as pd
 import torch
 import transformers as ppb # pytorch transformers
+import tensorflow as tf
 from transformers.optimization import AdamW
 # from utils.data.paths import resources_path
+
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_val_score
@@ -22,6 +24,7 @@ from contrai_cradle.db.db_connector import CONN
 # from contrai_cradle.learning.LogisticClassifying import LogisticClassifying
 from contrai_cradle.abstracts.MLAbstract import MLAbstract
 from contrai_cradle.config.constants import TRAINING_INGREDIENT_PATH
+
 
 class ContractDataset(Dataset):
     def __init__(self, data, device):
@@ -60,7 +63,9 @@ class BertClassifying(MLAbstract):
     _model_type = "BERT"
     _parametric = False
     _parameters = ""
+    # _num_labels = 54
     _num_labels = 54
+    _sample_num_per_label = 5
     # _vocab_size = 11000
     # _vocab_size = 8000
     # _embedding_dim = 64
@@ -74,11 +79,20 @@ class BertClassifying(MLAbstract):
     
 
     # TODO: try tweak this enlarge
-    _num_epochs = 5 # The author of BERT specifically tell us to fine tune our model up to 5 epochs at maximum
+
+    # TODO: try to start with just 2 samples to see changes of logits
+
+    
+    # TODO: extract sub-sentence from each sample to bootstrap sample size
+
+    
+    _num_epochs = 100 # The author of BERT specifically tell us to fine tune our model up to 5 epochs at maximum
     _batch_size = 32
 
     # TODO: try tweak this enlarge
-    _lr = 2e-5 # The author of BERT specifically tell us to use a learning rate between 2e-5 and 5e-5
+    # The author of BERT specifically tell us to use a learning rate between 2e-5 and 5e-5
+    # tried 2e-5 probably too slow
+    _lr = 5e-5 
 
     _model_name = 'dbmdz/bert-base-italian-xxl-cased'
 
@@ -259,6 +273,16 @@ class BertClassifying(MLAbstract):
         # print(outputs.logits)
 
     def _train_test_batch_prepare_and_tokenize(self):
+        # filter to leave only 2 labels data
+        # find 2 labels with largest size of samples
+        # add a column
+        # self._df["count"] = self._df["labels"]
+        picked_labels = self._df.groupby(["labels"]).count().sort_values(
+            by=['clauses'], ascending=False
+        ).iloc[0:self._num_labels,].index.tolist()
+        self._df = self._df[self._df["labels"].isin(picked_labels)]
+        # self._df["count"] = self._df.groupby(['labels'])["count"].transform("count")
+
         # transform labels to continuous sequence
         self._df['labels'] = [
             np.where(
@@ -270,7 +294,7 @@ class BertClassifying(MLAbstract):
         self._df['ind'] = self._df.index
         train_df = self._df.sort_values(
             ['labels'], ascending=False
-        ).groupby(['labels'], as_index=False).first()
+        ).groupby(['labels'], as_index=False).head(self._sample_num_per_label)
         # the remaining as testing set
         test_df = self._df[~self._df['ind'].isin(
             train_df['ind']
@@ -399,19 +423,30 @@ class BertClassifying(MLAbstract):
                     labels=labels
                 )
 
-            transformed_labels = torch.zeros(output[1].shape[0], output[1].shape[1])
-            for sample_index in range(len(labels)):
-                transformed_labels[sample_index][int(labels[sample_index])] = 1
+            # transformed_labels = torch.zeros(output[1].shape[0], output[1].shape[1])
+            # for sample_index in range(len(labels)):
+            #     transformed_labels[sample_index][int(labels[sample_index])] = 1
             # Return predicted and real labels
-            return output[1], transformed_labels
+
+            # apply softmax to logits in output
+            # for i in range(shape(output[1].shape[1])):
+            #     tf.nn.softmax(output[1][i])
+            # softmax = torch.nn.Softmax()
+
+            # pred = tf.map_fn(tf.nn.softmax, output[1])
+            print("Model output logits first row: ")
+            print(output[1][0])
+            return output[1], labels
 
         # Define two Ignite Engines for training and testing, respectively.
         trainer = Engine(train_loop)
         validator = Engine(val_loop)
 
         # Bind an accuracy & precision metric to the validation engine
-        Accuracy(is_multilabel=True).attach(validator, "accuracy")
-        Precision(is_multilabel=True).attach(validator, "precision")
+        # Accuracy(is_multilabel=True).attach(validator, "accuracy")
+        Accuracy().attach(validator, "accuracy")
+        # Precision(is_multilabel=True).attach(validator, "precision")
+        Precision().attach(validator, "precision")
 
         # As Early Stopping score function we use the accuracy
         def score_function(engine: Engine):
@@ -458,7 +493,7 @@ class BertClassifying(MLAbstract):
 
         trainer.add_event_handler(Events.EPOCH_COMPLETED, checkpoint_handler, {'model': model})
         trainer.add_event_handler(Events.COMPLETED, huggingface_save_handler)
-        validator.add_event_handler(Events.COMPLETED, early_stopping_handler)
+        # validator.add_event_handler(Events.COMPLETED, early_stopping_handler)
 
         # Do not run for more than 5 epochs, you'll
         trainer.run(train_dl, max_epochs=epochs)

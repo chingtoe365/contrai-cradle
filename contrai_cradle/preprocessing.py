@@ -61,7 +61,8 @@ class PreprocessingAbstract():
 	def __init__(self, file_path, embedding_method, tag_obtaining_method,
 			remove_stop_words: bool, do_stemming: bool, strigent_topic: bool,
 			ngram: list, multiple_paragraphs: bool, ngram_mixed:bool,
-			ngram_literated: bool, pos: list, semantic_analysis: bool, debug:bool):
+			ngram_literated: bool, pos: list, semantic_analysis: bool, 
+			extract_sentence: bool, debug:bool):
 		self._file_path = file_path
 		self._contract_doc = self._load_file(self._file_path)
 		self._remove_stop_words = remove_stop_words
@@ -76,6 +77,9 @@ class PreprocessingAbstract():
 		self._ngram_literated = ngram_literated
 		self._pos = pos
 		self._semantic_analysis = semantic_analysis
+		# TOOD: currently only implemented in CSV preprocessor
+		# implement it in all preprocessors
+		self._extract_sentence = extract_sentence
 		self._debug = debug
 
 	@abc.abstractmethod

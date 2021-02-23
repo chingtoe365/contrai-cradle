@@ -158,6 +158,7 @@ def preprocessing_worker(*args):
 	ngram_literated, \
 	pos, \
 	semantic_analysis, \
+	extract_sentence, \
 	debug = args[0]
 	# print(filepath)
 	print(f'Working on {filepath}')
@@ -175,6 +176,7 @@ def preprocessing_worker(*args):
 		ngram_literated,
 		pos,
 		semantic_analysis,
+		extract_sentence,
 		debug
 	)
 	try:
@@ -202,6 +204,7 @@ def main(
 		ngram_literated: bool,
 		semantic_analysis: bool,
 		merge_only: bool,
+		extract_sentence: bool,
 		pos: list,
 		training_id: int,
 		topic: str,
@@ -330,6 +333,7 @@ def main(
 					[ngram_literated,],
 					[pos,],
 					[semantic_analysis,],
+					[extract_sentence,]
 					[debug,],
 				])
 			]
@@ -571,6 +575,12 @@ if __name__ == '__main__':
 		default='False'
 	)
 	parser.add_argument(
+		"--extract-sentence",
+		help="Opt to extract individual sentences as samples instead of whole clause",
+		dest="extract_sentence",
+		default='False'
+	)
+	parser.add_argument(
 		"--training-id", 
 		help="ID returned from preprocessing", 
 		dest="training_id",
@@ -684,6 +694,7 @@ if __name__ == '__main__':
 		args.ngram_literated == 'True',
 		args.semantic_analysis == 'True',
 		args.merge_only == 'True',
+		args.extract_sentence == 'True',
 		args.pos,
 		args.training_id,
 		args.topic,
