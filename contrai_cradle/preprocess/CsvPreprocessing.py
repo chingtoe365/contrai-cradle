@@ -26,6 +26,7 @@ class CsvPreprocessing(PreprocessingAbstract):
         clauses = self._contract_doc['clause']
         tags = self._contract_doc['tag']
         tags_list = list(set(tags))
+        pd.DataFrame(tags_list).to_csv('tag_list.csv')
         for i in range(self._contract_doc.shape[0]):
             if tags[i] == 'notclear' or tags[i] == 'none' or tags[i] == 'def' or \
                 tags[i] == 'mult':

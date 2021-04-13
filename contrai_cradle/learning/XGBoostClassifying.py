@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import numpy as np
 import xgboost as xgb
+from datetime import datetime
 from xgboost import plot_tree
 from xgboost import plot_importance
 from nltk.metrics.scores import (
@@ -20,7 +21,7 @@ class XGBoostClassifying(MLAbstract):
     _model_type = "Extreme Gradient Boosting"
     _parameters = ""
     _parametric = False
-    _plot_tree = True
+    _plot_tree = False
     _feature_map_path = os.path.join(
         os.getcwd(),
         TRAINING_INGREDIENT_PATH,
@@ -101,10 +102,11 @@ class XGBoostClassifying(MLAbstract):
         for train_index, test_index in kfold.split(X):
             X_train, X_test = X.loc[train_index], X.loc[test_index]
             y_train, y_test = y[train_index], y[test_index]
-            before = time.time()
+            before = datetime.now()
             self._train(X_train, y_train, class_num)
-            after = time.time()
-            print("One XGBoost model trained with time in {} seconds".format(str(after - before)))
+            after = datetime.now()
+            durtaion = (after - before).total_seconds()
+            print("One XGBoost model trained with time in {} seconds".format(str(durtaion)))
             self._test(X_train, y_train, 'train')
             self._test(X_test, y_test, 'test')
             print("testing accruracy: {}".format(str(self._accuracy_test)))
