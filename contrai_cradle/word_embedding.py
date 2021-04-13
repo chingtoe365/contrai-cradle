@@ -48,5 +48,5 @@ def tfidf(list_of_words: List) -> Dict:
 	# 	return {}
 	return dict(nltk.FreqDist(list_of_words))
 
-def raw_string(list_of_words: List) -> Dict:
+def raw_string(list_of_words: List):
 	return ' '.join(list_of_words)

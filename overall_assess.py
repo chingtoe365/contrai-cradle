@@ -8,18 +8,30 @@ Overall Assessment
 
 LATEST
 from 3769 assess new labelled data
+
+
+
+
+REAL DATA:
+1305 clause base samples/raw string
+1307 sentence base samples/raw string
+
 '''
 import os
 from itertools import combinations, product
 from functools import reduce
 
 input_format = 'csv' # rtf
-tagging_method = 'current_label_as_label' # heading_as_label
+tagging_method = 'current_label_as_label' 
+"""
+heading_as_label
+current_label_as_label
+"""
 gramPossibilities=[1,2,3,4,]
 # cvFoldNumbers=list(range(2,25+1))
 maxIter=[50,100,500,750,1000,2000,]
 # cvFoldNumbers=list(range(10,25+1))
-cvFoldNumbers=[20, ]
+cvFoldNumbers=[5, ]
 binaryOptions=['True', 'False']
 # C=[0.001,0.01,0.1,1,5,10,100]
 C=[0.1, ]
@@ -44,8 +56,9 @@ gramCombiniationOptions=[
 # ]
 models = [
     # "naive_bayes",
-    "linear_svc",
-    "logistic_regression",
+    # "linear_svc",
+    # "logistic_regression",
+    "xgboost"
     # "sgdc",
     # "svc"
 ]
@@ -56,8 +69,8 @@ if __name__ == '__main__':
             binaryOptions, # ['False', ], # stop word
             binaryOptions, # ['True', ], # stemming
             ['False', ],# ['True', ], # multiple paragraphs
-            binaryOptions, #['False', ], # semantic analytis
-            binaryOptions, # ['False', ], # literate ngram
+            ['False', ], #['False', ], # semantic analytis
+            ['False', ], # ['False', ], # literate ngram
             gramCombiniationOptions#[[1,2,3,4], ], # gram combinations
         ])
     ]

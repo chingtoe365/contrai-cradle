@@ -1,5 +1,6 @@
 import os
 import re
+from typing import Dict
 from contrai_cradle.preprocessing import PreprocessingAbstract
 from contrai_cradle.analytics.sentence_tree_analytics import SentenceTreeFeatureScanner
 from contrai_cradle.utils import update_dict_by_accumulate
@@ -68,7 +69,7 @@ class RtfPreprocessing(PreprocessingAbstract):
         page = re.sub(pattern, '', page)    
         return page 
 
-    def _numerize_texts(self) -> List:
+    def _numerize_texts(self) -> Dict:
         derived_observations = []
         same_topic_BOW = []
         # add a file to point topic to file

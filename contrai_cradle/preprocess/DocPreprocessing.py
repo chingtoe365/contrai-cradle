@@ -1,14 +1,15 @@
 import os
 import re
+from typing import Dict
 from contrai_cradle.preprocessing import PreprocessingAbstract
 
-class DocxPreprocessing(PreprocessingAbstract):
+class DocPreprocessing(PreprocessingAbstract):
     def _load_file(self, file_path):
         full_path = os.path.join(os.getcwd(), file_path)
         return docx.Document(full_path)
 
 
-    def _numerize_texts(self) -> List:
+    def _numerize_texts(self) -> Dict:
         derived_observations = []
         word2vec_corpus = []
         topic_file_pointer = []

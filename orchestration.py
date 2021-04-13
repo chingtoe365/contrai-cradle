@@ -22,23 +22,23 @@ from threading import Thread, Event
 
 from os import listdir
 
-from contrai_cradle.preprocessing import DocxPreprocessing, RtfPreprocessing, CsvPreprocessing
-from contrai_cradle.learning import ModelClassSelector
+# from contrai_cradle.preprocessing import DocxPreprocessing, RtfPreprocessing, CsvPreprocessing
+# import contrai_cradle.preprocess as cp
+from contrai_cradle.preprocess import *
+from contrai_cradle.learning import *
 from contrai_cradle.db.db_connector import DBConnector
 from contrai_cradle.db.config import PPC_TABLE
 from contrai_cradle.event_logger import logger
+from contrai_cradle.config.constants import TRAINING_INGREDIENT_PATH, \
+MIDDLE_INGREDIENT_PATH, WORD2VEC_INGREDIENT_PATH, CONTRACT_PATH
+
 from itertools import product
 
 PREPROCESS_CLS_MAP = {
-	'rtf': RtfPreprocessing,
-	'docx': DocxPreprocessing,
-	'csv': CsvPreprocessing
+	'rtf': 'RtfPreprocessing',
+	'docx': 'DocPreprocessing',
+	'csv': 'CsvPreprocessing'
 }
-TRAINING_INGREDIENT_PATH = 'training_ingredients/'
-MIDDLE_INGREDIENT_PATH = 'middleware_ingredients/'
-WORD2VEC_INGREDIENT_PATH = 'word2vec_ingredients/'
-CONTRACT_PATH = 'contracts/'
-
 
 def merge_datasets(path_to_merge, suffix, filename=None) -> str:
 	# get list of json txt files
@@ -98,6 +98,7 @@ def create_learning_entry(
 		ngram_mixed: str,
 		ngram_literated: str,
 		semantic_analysis: str,
+		extract_sentence: str,
 		multiple_paragraphs: str,		
 		pos: str,
 		sample_count: int,
@@ -134,6 +135,7 @@ def create_learning_entry(
 		ngram_mixed=ngram_mixed,
 		ngram_literated=ngram_literated,
 		semantic_analysis=semantic_analysis,
+		extract_sentence=extract_sentence,
 		multiple_paragraphs=multiple_paragraphs,
 		pos=pos,
 		sample_count=sample_count,
@@ -158,6 +160,7 @@ def preprocessing_worker(*args):
 	ngram_literated, \
 	pos, \
 	semantic_analysis, \
+	extract_sentence, \
 	debug = args[0]
 	# print(filepath)
 	print(f'Working on {filepath}')
@@ -175,12 +178,13 @@ def preprocessing_worker(*args):
 		ngram_literated,
 		pos,
 		semantic_analysis,
+		extract_sentence,
 		debug
 	)
 	try:
 		individual_file_preprocess_engine.bag_of_word_dict_transformer()
 	except Exception as e: 
-		logger.error(fp+"\n "+str(e))
+		logger.error(filepath+"\n "+str(e))
 		# job_Q.task_done()
 	# job_Q.task_done()
 	print(f'Finished {filepath}')
@@ -202,6 +206,7 @@ def main(
 		ngram_literated: bool,
 		semantic_analysis: bool,
 		merge_only: bool,
+		extract_sentence: bool,
 		pos: list,
 		training_id: int,
 		topic: str,
@@ -247,7 +252,7 @@ def main(
 			else:
 				file_paths = []
 
-		preprocess_cls = PREPROCESS_CLS_MAP[input_file_format]
+		preprocess_cls = eval(PREPROCESS_CLS_MAP[input_file_format])
 		preprocessing_start = datetime.datetime.strftime(
 			datetime.datetime.now(), "%Y-%m-%d %H:%M:%S")
 
@@ -330,6 +335,7 @@ def main(
 					[ngram_literated,],
 					[pos,],
 					[semantic_analysis,],
+					[extract_sentence,],
 					[debug,],
 				])
 			]
@@ -396,6 +402,7 @@ def main(
 				ngram_mixed,
 				ngram_literated,
 				semantic_analysis,
+				extract_sentence,
 				multiple_paragraphs,
 				pos,
 				sample_count,
@@ -571,6 +578,12 @@ if __name__ == '__main__':
 		default='False'
 	)
 	parser.add_argument(
+		"--extract-sentence",
+		help="Opt to extract individual sentences as samples instead of whole clause",
+		dest="extract_sentence",
+		default='False'
+	)
+	parser.add_argument(
 		"--training-id", 
 		help="ID returned from preprocessing", 
 		dest="training_id",
@@ -684,6 +697,7 @@ if __name__ == '__main__':
 		args.ngram_literated == 'True',
 		args.semantic_analysis == 'True',
 		args.merge_only == 'True',
+		args.extract_sentence == 'True',
 		args.pos,
 		args.training_id,
 		args.topic,

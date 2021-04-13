@@ -115,7 +115,7 @@ def label_at_tail(
 	)
 
 def current_label_as_label(
-		quan_raw_word_vec: Dict, 
+		quan_raw_word_vec, 
 		raw_word_vec: Dict,
 		current_label: str,
 		strigent: bool
