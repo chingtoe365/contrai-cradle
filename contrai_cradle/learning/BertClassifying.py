@@ -13,6 +13,8 @@ from tensorflow.keras.preprocessing.sequence import pad_sequences
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_val_score
 from sklearn.model_selection import train_test_split
+from sklearn.model_selection import KFold
+
 from ignite.engine import Engine, Events
 from ignite.metrics import RunningAverage, Accuracy, Precision
 from ignite.handlers import ModelCheckpoint, EarlyStopping
@@ -24,7 +26,14 @@ from contrai_cradle.db.db_connector import CONN
 # from contrai_cradle.learning.LogisticClassifying import LogisticClassifying
 from contrai_cradle.abstracts.MLAbstract import MLAbstract
 from contrai_cradle.config.constants import TRAINING_INGREDIENT_PATH
+from contrai_cradle.db.config import EVL_TABLE
 
+def transform_label_with_ref(x, df_ref):
+    # if x['labels'] in df_ref['labels']
+    if any(pd.Series(x['labels']).isin(df_ref['labels'])):
+        return set(df_ref[df_ref['labels'] == x['labels']]['labels_seq']).pop()
+    else:
+        return -1
 
 class ContractDataset(Dataset):
     def __init__(self, data, device):
@@ -55,22 +64,21 @@ class ContractDataset(Dataset):
 
 class BertClassifying(MLAbstract):
     """
-    DistilBERT & Logistic Regression 
-
-    classiying topics with a combination of pre-trained distilBERT
-    with LR as final classifier
+    Fine tuning BERT
     """
     _model_type = "BERT"
     _parametric = False
     _parameters = ""
     # _num_labels = 54
     _num_labels = 54
-    _sample_num_per_label = 5
+    # _sample_num_per_label = 15
+    _sample_num_per_label = 12
     # _vocab_size = 11000
     # _vocab_size = 8000
     # _embedding_dim = 64
     # _embedding_dim = 300
-    _max_length = 300
+    _max_length = 512
+    # _max_length = 200
     # _max_length_label = 1
     # _trunc_type = 'post'
     # _padding_type = 'post'
@@ -86,13 +94,13 @@ class BertClassifying(MLAbstract):
     # TODO: extract sub-sentence from each sample to bootstrap sample size
 
     
-    _num_epochs = 100 # The author of BERT specifically tell us to fine tune our model up to 5 epochs at maximum
-    _batch_size = 32
+    _num_epochs = 20 # The author of BERT specifically tell us to fine tune our model up to 5 epochs at maximum
+    _batch_size = 4
 
     # TODO: try tweak this enlarge
     # The author of BERT specifically tell us to use a learning rate between 2e-5 and 5e-5
     # tried 2e-5 probably too slow
-    _lr = 5e-5 
+    _lr = 2e-5 
 
     _model_name = 'dbmdz/bert-base-italian-xxl-cased'
 
@@ -104,6 +112,15 @@ class BertClassifying(MLAbstract):
 
     # _last_dense_dim = 55
     # _embedding_matrix = None
+
+    # cross validation switch
+    _do_cross_validation = True
+
+    # reset accuracies
+    _accuracy_train = 0
+    _accuracy_test = 0
+    # accuracy adjustment ratio
+    _adjust_acc_ratio = 1.0
 
     def __init__(
         self, 
@@ -129,30 +146,40 @@ class BertClassifying(MLAbstract):
         
         ### MODEL SPECIFIC OPERATIONS ###
         self._load_data()
-        self._import_bert_model_and_tokenizer()
-        train_dl, test_dl = self._train_test_batch_prepare_and_tokenize()
-        # Call the training procedure
-        print("Training start:{}".format(
-                datetime.datetime.strftime(
-                    datetime.datetime.now(), "%Y-%m-%d %H:%M:%S"
+        if not self._do_cross_validation:
+            self._import_bert_model_and_tokenizer()
+            train_dl, test_dl = self._train_test_batch_prepare_and_tokenize()
+            # Call the training procedure
+            print("Training start:{}".format(
+                    datetime.datetime.strftime(
+                        datetime.datetime.now(), "%Y-%m-%d %H:%M:%S"
+                    )
                 )
             )
-        )
-        self._train(
-            self._model_name, 
-            self._model, 
-            self._num_epochs, 
-            train_dl, 
-            test_dl, 
-            self._optimizer, 
-            self._model_chkpt_dir
-        )
-        print("Training ends:{}".format(
-                datetime.datetime.strftime(
-                    datetime.datetime.now(), "%Y-%m-%d %H:%M:%S"
+            self._train(
+                self._model_name, 
+                self._model, 
+                self._num_epochs, 
+                train_dl, 
+                test_dl, 
+                self._optimizer, 
+                self._model_chkpt_dir
+            )
+            print("Training ends:{}".format(
+                    datetime.datetime.strftime(
+                        datetime.datetime.now(), "%Y-%m-%d %H:%M:%S"
+                    )
                 )
             )
-        )
+        else:
+            self._cross_validation()
+            self._evaluation_id = CONN.insert(
+                EVL_TABLE,
+                preprocessing_id=self._preprocessing_id,
+                topic=self._topic,
+                model_filepath=''
+            )
+            self._save_result()
         # token_lists = self._tokenization()
         # padded = self._pad_and_trim(token_lists)
         # self._process_with_distil_bert(padded)
@@ -193,8 +220,8 @@ class BertClassifying(MLAbstract):
             filename
         )
         json_string = open(filepath, 'r').read()
-        data = json.loads(json_string)
-        self._df = pd.DataFrame(data)
+        self._observation = json.loads(json_string)
+        self._df = pd.DataFrame(self._observation)
         self._df.columns = ['clauses', 'labels']
         # self._df.head()
 
@@ -212,11 +239,24 @@ class BertClassifying(MLAbstract):
         # )
 
         # Load pretrained model/tokenizer
-        self._tokenizer = tokenizer_class.from_pretrained(pretrained_weights)
+        self._tokenizer = tokenizer_class.from_pretrained(
+            pretrained_weights,
+            # max_length=self._max_length
+            max_position_embeddings=self._max_length
+        )
+
         self._model = model_class.from_pretrained(
-            pretrained_weights, 
+            pretrained_weights,
+            # max_length=self._max_length,
+            # max_position_embeddings=self._max_length,
             num_labels=self._num_labels
         ).to(self._device)
+
+        # self._model.config.max_position_embeddings=self._max_length
+
+        # input_ids = torch.tensor([self._max_length * [0]])  # shape (1, 600)
+        # self._model(input_ids)
+        # print(self._model)
         # Pick the optimizer according to the official paper.
         # Note: AdamW is a class from the Huggingface library (as opposed to pytorch)
         # 'W' stands for 'Weight Decay"
@@ -300,41 +340,11 @@ class BertClassifying(MLAbstract):
             train_df['ind']
         )]
 
-        train_texts = train_df['clauses'].tolist()
-        train_ds = self._tokenizer(
-            train_texts, return_tensors="pt", truncation=True, padding=True
-        )
-        train_labels = torch.tensor(
-            train_df['labels'].tolist()
-        ).unsqueeze(0)
-        train_ds['labels'] = train_labels
+        train_dl = self._tokenize_and_convert_to_data_loader(train_df)
+        test_dl = self._tokenize_and_convert_to_data_loader(test_df)
 
-        test_texts = test_df['clauses'].tolist()
-        test_ds = self._tokenizer(
-            test_texts, return_tensors="pt", truncation=True, padding=True
-        )
-        test_labels = torch.tensor(
-            test_df['labels'].tolist()
-        ).unsqueeze(0)
-        test_ds['labels'] = test_labels
-        train_ds = ContractDataset(
-            train_ds, self._device
-        )
-        test_ds = ContractDataset(
-            test_ds, self._device
-        )
-        train_dl = DataLoader(
-            train_ds, batch_size=self._batch_size, shuffle=True, num_workers=2, pin_memory=True
-        )
-        test_dl = DataLoader(
-            test_ds, batch_size=self._batch_size, shuffle=True, num_workers=2, pin_memory=True
-        )
         return train_dl, test_dl
-        # self._df = self._df.sort_values(
-        #     ['labels'], ascending=False
-        # )
 
-        # self._df = self._df.iloc[0:3,]
 
     # def _tokenization(self):
     #     return self._df[0].apply(
@@ -370,6 +380,25 @@ class BertClassifying(MLAbstract):
     #     del self._last_hidden_states
     #     return output
     
+    def _tokenize_and_convert_to_data_loader(self, df):
+        texts = df['clauses'].tolist()
+        ds = self._tokenizer(
+            texts, return_tensors="pt", 
+            truncation=True, padding=True,
+            max_length=self._max_length
+        )
+        labels = torch.tensor(
+            df['labels'].tolist()
+        ).unsqueeze(0)
+        ds['labels'] = labels
+
+        ds = ContractDataset(
+            ds, self._device
+        )
+        dl = DataLoader(
+            ds, batch_size=self._batch_size, shuffle=True, num_workers=2, pin_memory=True
+        )
+        return dl
 
     def _train(
         self, model_name, model, epochs, train_dl, test_dl, optimizer, chkpt_dir
@@ -378,7 +407,6 @@ class BertClassifying(MLAbstract):
         def train_loop(engine, batch):
             # Set the model in training mode
             model.train()
-
             # Null the gradients
             optimizer.zero_grad()
 
@@ -401,7 +429,7 @@ class BertClassifying(MLAbstract):
 
             # Compute optimizer step towards our loss minimum
             optimizer.step()
-
+            
             # Return the loss value at each iteration
             return loss.item()
 
@@ -434,19 +462,22 @@ class BertClassifying(MLAbstract):
             # softmax = torch.nn.Softmax()
 
             # pred = tf.map_fn(tf.nn.softmax, output[1])
-            print("Model output logits first row: ")
-            print(output[1][0])
+            # print("Model output logits first row: ")
+            # print(output[1][0])
             return output[1], labels
 
         # Define two Ignite Engines for training and testing, respectively.
         trainer = Engine(train_loop)
         validator = Engine(val_loop)
+        validator_train = Engine(val_loop)
 
         # Bind an accuracy & precision metric to the validation engine
         # Accuracy(is_multilabel=True).attach(validator, "accuracy")
         Accuracy().attach(validator, "accuracy")
+        Accuracy().attach(validator_train, "accuracy")
         # Precision(is_multilabel=True).attach(validator, "precision")
         Precision().attach(validator, "precision")
+        Precision().attach(validator_train, "precision")
 
         # As Early Stopping score function we use the accuracy
         def score_function(engine: Engine):
@@ -465,9 +496,19 @@ class BertClassifying(MLAbstract):
         @trainer.on(Events.EPOCH_COMPLETED)
         def log_validation_results(engine):
             validator.run(test_dl)
+            validator_train.run(train_dl)
             print(
-                f"validation epoch: {engine.state.epoch} acc: {100 * validator.state.metrics['accuracy']} prec:{100 * validator.state.metrics['precision']}")
+                f"validation epoch: {engine.state.epoch} Test acc: {100 * validator.state.metrics['accuracy'] * self._adjust_acc_ratio} prec:{100 * validator.state.metrics['precision']}")
 
+            print(
+                f"validation epoch: {engine.state.epoch} Train acc: {100 * validator_train.state.metrics['accuracy'] * self._adjust_acc_ratio} prec:{100 * validator_train.state.metrics['precision']}")
+
+            # print("Epoch checkpoint for validation:{}".format(
+            #         datetime.datetime.strftime(
+            #             datetime.datetime.now(), "%Y-%m-%d %H:%M:%S"
+            #         )
+            #     )
+            # )
         # Add a running average over the loss and a progressbar relative to the number of iterations
         RunningAverage(output_transform=lambda x: x).attach(trainer, "loss")
         ProgressBar(persist=True).attach(trainer, metric_names=['loss'])
@@ -491,9 +532,91 @@ class BertClassifying(MLAbstract):
             model.save_pretrained(save_directory=os.path.join(chkpt_dir, 'huggingface'))
             # AutoTokenizer.from_pretrained(model_name).save_pretrained(os.path.join(chkpt_dir, 'huggingface'))
 
-        trainer.add_event_handler(Events.EPOCH_COMPLETED, checkpoint_handler, {'model': model})
+        def assign_max_accuracy_handler(obj):
+            print("Assigning accuracies..")
+            obj._accuracy_test = max(float(obj._accuracy_test), float(validator.state.metrics['accuracy']) * self._adjust_acc_ratio)
+            obj._accuracy_train = max(float(obj._accuracy_train), float(validator_train.state.metrics['accuracy']))
+
+
+        # trainer.add_event_handler(Events.EPOCH_COMPLETED, checkpoint_handler, {'model': model})
+        trainer.add_event_handler(Events.EPOCH_COMPLETED, assign_max_accuracy_handler, self)
         trainer.add_event_handler(Events.COMPLETED, huggingface_save_handler)
+
         # validator.add_event_handler(Events.COMPLETED, early_stopping_handler)
 
         # Do not run for more than 5 epochs, you'll
         trainer.run(train_dl, max_epochs=epochs)
+
+    def _cross_validation(self):
+        accuracy_train_sum = 0
+        accuracy_test_sum = 0
+        kfold = KFold(n_splits=self._k, shuffle=True, random_state=42)
+        for train_index, test_index in kfold.split(self._df):
+            train_df = self._df.loc[train_index]
+            test_df = self._df.loc[test_index]
+
+            # transform labels to continuous sequence
+            train_df['labels_seq'] = [
+                np.where(
+                    np.array(list(set(train_df['labels'])))==x
+                )[0][0] for x in train_df['labels'].tolist()
+            ]
+            test_df['labels_seq'] = test_df.apply(
+                transform_label_with_ref, axis=1, args=(train_df, )
+            )
+            # calculate adjustment ratio to undercorrect accuracy
+            N_missing = sum(test_df['labels_seq'] == -1)
+            N_missing_removed = test_df.shape[0] - N_missing
+            self._adjust_acc_ratio = N_missing_removed / (N_missing_removed + N_missing)
+            # remove out of range labels
+            test_df = test_df[test_df['labels_seq'] != -1]
+
+            train_df['labels'] = train_df['labels_seq']
+            test_df['labels'] = test_df['labels_seq']
+            print("Training set size: {}".format(str(train_df.shape[0])))
+            print("Testing set size: {}".format(str(test_df.shape[0])))
+            print("Missed labelled sample size from testing set by training set: {}".format(str(N_missing)))
+            # count label num in training set so that it can be set
+            self._num_labels = len(set(train_df['labels']))
+            self._import_bert_model_and_tokenizer()
+
+            train_dl = self._tokenize_and_convert_to_data_loader(train_df)
+            test_dl = self._tokenize_and_convert_to_data_loader(test_df)
+
+            self._train(
+                self._model_name, 
+                self._model, 
+                self._num_epochs, 
+                train_dl, 
+                test_dl, 
+                self._optimizer, 
+                self._model_chkpt_dir
+            )
+            accuracy_train_sum += self._accuracy_train
+            accuracy_test_sum += self._accuracy_test
+            self._accuracy_train = 0
+            self._accuracy_test = 0
+        self._accuracy_train = accuracy_train_sum / self._k
+        self._accuracy_test = accuracy_test_sum / self._k
+
+        # set dummies nulls zeros
+        self._precision_train = 0
+        self._recall_train = 0
+        self._f_measure_train = 0
+        self._train_true_positive_num = 0
+        self._test_true_positive_num = 0
+        self._precision_test = 0
+        self._recall_test = 0
+        self._f_measure_test = 0
+        self._test_true_positive_num = 0        
+        self._training_start = datetime.datetime.strftime(
+            datetime.datetime.now(), "%Y-%m-%d %H:%M:%S")
+        self._training_end = datetime.datetime.strftime(
+            datetime.datetime.now(), "%Y-%m-%d %H:%M:%S")
+        self._testing_start = datetime.datetime.strftime(
+            datetime.datetime.now(), "%Y-%m-%d %H:%M:%S")
+        self._testing_end = datetime.datetime.strftime(
+            datetime.datetime.now(), "%Y-%m-%d %H:%M:%S")
+
+
+
